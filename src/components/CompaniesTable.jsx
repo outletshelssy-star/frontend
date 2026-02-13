@@ -295,8 +295,8 @@ const CompaniesTable = ({
       type === 'master'
         ? { fg: '#5b21b6', bg: '#ede9fe' }
         : type === 'partner'
-        ? { fg: '#1d4ed8', bg: '#dbeafe' }
-        : { fg: '#0f766e', bg: '#ccfbf1' }
+          ? { fg: '#1d4ed8', bg: '#dbeafe' }
+          : { fg: '#0f766e', bg: '#ccfbf1' }
     return (
       <Box
         component="span"
@@ -425,7 +425,7 @@ const CompaniesTable = ({
                     direction={sortBy === 'name' ? sortDir : 'asc'}
                     onClick={() => handleSort('name')}
                   >
-                    Nombre
+                    Nombre de Empresa
                   </TableSortLabel>
                 </TableCell>
                 <TableCell align="center">
@@ -542,7 +542,24 @@ const CompaniesTable = ({
       ) : null}
       <Dialog open={isCreateOpen} onClose={closeCreate} fullWidth maxWidth="sm">
         <DialogTitle>Nueva empresa</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}
@@ -576,7 +593,24 @@ const CompaniesTable = ({
       </Dialog>
       <Dialog open={isEditOpen} onClose={closeEdit} fullWidth maxWidth="sm">
         <DialogTitle>Editar empresa</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}

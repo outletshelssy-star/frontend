@@ -63,6 +63,7 @@ const MEASURE_OPTIONS = [
   { value: 'pressure', label: 'Presion' },
   { value: 'length', label: 'Longitud' },
   { value: 'weight', label: 'Peso' },
+  { value: 'api', label: '°API' },
 ]
 
 const EquipmentTypesTable = ({
@@ -943,6 +944,8 @@ const EquipmentTypesTable = ({
         ]
       case 'pressure':
         return [{ value: 'pa', label: 'Pa' }]
+      case 'api':
+        return [{ value: 'api', label: '°API' }]
       default:
         return []
     }
@@ -958,6 +961,8 @@ const EquipmentTypesTable = ({
         return 'mm'
       case 'pressure':
         return 'pa'
+      case 'api':
+        return 'api'
       default:
         return ''
     }

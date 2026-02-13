@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Box, Typography } from '@mui/material'
 import { useAuthStore } from '../store/useAuthStore'
 import { useUsersStore } from '../store/useUsersStore'
 import { useUiStore } from '../store/useUiStore'
@@ -17,13 +18,15 @@ import Sidebar from '../components/Sidebar'
 import UsersTable from '../components/UsersTable'
 import ProfileSection from '../components/ProfileSection'
 import DashboardLayout from '../layouts/DashboardLayout'
+import DashboardSummary from '../components/DashboardSummary'
 import CompaniesTable from '../components/CompaniesTable'
 import CompanyBlocksTable from '../components/CompanyBlocksTable'
 import CompanyTerminalsTable from '../components/CompanyTerminalsTable'
 import EquipmentTypesTable from '../components/EquipmentTypesTable'
 import EquipmentsTable from '../components/EquipmentsTable'
+import SamplesTable from '../components/SamplesTable'
 
-const Dashboard = () => {
+const DashBoard = () => {
   const {
     username,
     tokenType,
@@ -50,6 +53,8 @@ const Dashboard = () => {
     setIsSidebarCollapsed,
     resetUi,
   } = useUiStore()
+  const role = String(currentUser?.user_type || '').toLowerCase()
+  const canSeeUsers = role === 'admin' || role === 'superadmin'
   const [companies, setCompanies] = useState([])
   const [companiesError, setCompaniesError] = useState('')
   const [isCompaniesLoading, setIsCompaniesLoading] = useState(false)
@@ -78,242 +83,291 @@ const Dashboard = () => {
     resetAuth()
   }
 
-  // currentUser is loaded in AppRoutes session validation
-
-  useEffect(() => {
-    if (!currentUser) return
-    if (activeSection) return
-    setActiveSection('profile')
-  }, [currentUser, activeSection, setActiveSection])
-
-  const refreshUsers = useCallback(async (statusFilter = 'all') => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeUsers = role === 'admin' || role === 'superadmin'
-
-    if (!accessToken || !canSeeUsers) {
-      setUsers([])
-      setUsersError('')
-      setIsUsersLoading(false)
-      return
+  const loadCurrentUser = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const data = await fetchCurrentUser({ tokenType, accessToken })
+      setCurrentUser(data)
+      setCurrentUserError('')
+    } catch (err) {
+      setCurrentUserError(err?.detail || 'No se pudo cargar el usuario actual.')
     }
+  }, [accessToken, tokenType, setCurrentUser, setCurrentUserError])
 
+  const loadUsers = useCallback(async () => {
+    if (!accessToken || !canSeeUsers) return
     setIsUsersLoading(true)
     setUsersError('')
-
     try {
-      const isActive =
-        statusFilter === 'all' ? undefined : statusFilter === 'active'
-      const data = await fetchUsers({ tokenType, accessToken, isActive })
-      setUsers(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setUsersError(data.message)
-      }
+      const data = await fetchUsers({ tokenType, accessToken })
+      setUsers(Array.isArray(data?.items) ? data.items : [])
     } catch (err) {
-      setUsers([])
-      setUsersError(err?.detail || 'Error de red al cargar usuarios.')
+      setUsersError(err?.detail || 'No se pudieron cargar los usuarios.')
     } finally {
       setIsUsersLoading(false)
+    }
+  }, [accessToken, tokenType, setIsUsersLoading, setUsersError, setUsers, canSeeUsers])
+
+  const loadCompanies = useCallback(async () => {
+    if (!accessToken) return
+    setIsCompaniesLoading(true)
+    setCompaniesError('')
+    try {
+      const data = await fetchCompanies({ tokenType, accessToken })
+      setCompanies(Array.isArray(data?.items) ? data.items : [])
+    } catch (err) {
+      setCompaniesError(err?.detail || 'No se pudieron cargar las empresas.')
+    } finally {
+      setIsCompaniesLoading(false)
+    }
+  }, [accessToken, tokenType])
+
+  const loadBlocks = useCallback(async () => {
+    if (!accessToken) return
+    setIsBlocksLoading(true)
+    setBlocksError('')
+    try {
+      const data = await fetchCompanyBlocks({ tokenType, accessToken })
+      setBlocks(Array.isArray(data?.items) ? data.items : [])
+    } catch (err) {
+      setBlocksError(err?.detail || 'No se pudieron cargar los bloques.')
+    } finally {
+      setIsBlocksLoading(false)
+    }
+  }, [accessToken, tokenType])
+
+  const loadTerminals = useCallback(async () => {
+    if (!accessToken) return
+    setIsTerminalsLoading(true)
+    setTerminalsError('')
+    try {
+      const data = await fetchCompanyTerminals({ tokenType, accessToken })
+      setTerminals(Array.isArray(data?.items) ? data.items : [])
+    } catch (err) {
+      setTerminalsError(err?.detail || 'No se pudieron cargar los terminales.')
+    } finally {
+      setIsTerminalsLoading(false)
+    }
+  }, [accessToken, tokenType])
+
+  const loadEquipmentTypes = useCallback(async () => {
+    if (!accessToken) return
+    setIsEquipmentTypesLoading(true)
+    setEquipmentTypesError('')
+    try {
+      const data = await fetchEquipmentTypes({ tokenType, accessToken })
+      setEquipmentTypes(Array.isArray(data?.items) ? data.items : [])
+    } catch (err) {
+      setEquipmentTypesError(err?.detail || 'No se pudieron cargar los tipos de equipo.')
+    } finally {
+      setIsEquipmentTypesLoading(false)
+    }
+  }, [accessToken, tokenType])
+
+  const loadEquipments = useCallback(async () => {
+    if (!accessToken) return
+    setIsEquipmentsLoading(true)
+    setEquipmentsError('')
+    try {
+      const data = await fetchEquipments({ tokenType, accessToken })
+      setEquipments(Array.isArray(data?.items) ? data.items : [])
+    } catch (err) {
+      setEquipmentsError(err?.detail || 'No se pudieron cargar los equipos.')
+    } finally {
+      setIsEquipmentsLoading(false)
+    }
+  }, [accessToken, tokenType])
+
+  useEffect(() => {
+    if (!accessToken) return
+    loadCurrentUser()
+  }, [accessToken, loadCurrentUser])
+
+  useEffect(() => {
+    if (!accessToken) return
+    switch (activeSection) {
+      case 'dashboard':
+        if (canSeeUsers) {
+          loadUsers()
+        }
+        break
+      case 'users':
+        if (canSeeUsers) {
+          loadUsers()
+        }
+        break
+      case 'companies':
+        loadCompanies()
+        break
+      case 'blocks':
+        loadCompanies()
+        loadBlocks()
+        break
+      case 'terminals':
+        loadCompanies()
+        loadBlocks()
+        loadTerminals()
+        break
+      case 'equipment-types':
+        loadEquipmentTypes()
+        break
+      case 'equipment':
+        loadEquipmentTypes()
+        loadCompanies()
+        loadTerminals()
+        loadEquipments()
+        break
+      case 'samples':
+        loadTerminals()
+        loadEquipments()
+        break
+      case 'profile':
+      default:
+        break
     }
   }, [
     accessToken,
-    tokenType,
-    currentUser,
-    setUsers,
-    setUsersError,
-    setIsUsersLoading,
+    activeSection,
+    loadUsers,
+    loadCompanies,
+    loadBlocks,
+    loadTerminals,
+    loadEquipmentTypes,
+    loadEquipments,
   ])
 
-  const refreshCompanies = useCallback(async () => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeCompanies =
-      role === 'admin' || role === 'superadmin' || role === 'user'
-
-    if (!accessToken || !canSeeCompanies) {
-      setCompanies([])
-      setCompaniesError('')
-      setIsCompaniesLoading(false)
-      return
+  const renderContent = () => {
+    switch (activeSection) {
+      case 'dashboard':
+        return (
+          <DashboardSummary
+            username={username}
+            usersCount={users.length}
+            isUsersLoading={isUsersLoading}
+            onLogout={handleLogout}
+          />
+        )
+      case 'users':
+        if (!canSeeUsers) {
+          return (
+            <ProfileSection
+              currentUser={currentUser}
+              currentUserError={currentUserError}
+              formatUserType={formatUserType}
+              tokenType={tokenType}
+              accessToken={accessToken}
+              onProfileUpdated={loadCurrentUser}
+            />
+          )
+        }
+        return (
+          <UsersTable
+            users={users}
+            usersError={usersError}
+            isUsersLoading={isUsersLoading}
+            formatUserType={formatUserType}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onUserCreated={loadUsers}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+          />
+        )
+      case 'companies':
+        return (
+          <CompaniesTable
+            companies={companies}
+            companiesError={companiesError}
+            isCompaniesLoading={isCompaniesLoading}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onCompanyChanged={loadCompanies}
+          />
+        )
+      case 'blocks':
+        return (
+          <CompanyBlocksTable
+            blocks={blocks}
+            blocksError={blocksError}
+            isBlocksLoading={isBlocksLoading}
+            companies={companies}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onBlockChanged={loadBlocks}
+          />
+        )
+      case 'terminals':
+        return (
+          <CompanyTerminalsTable
+            terminals={terminals}
+            terminalsError={terminalsError}
+            isTerminalsLoading={isTerminalsLoading}
+            companies={companies}
+            blocks={blocks}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onTerminalChanged={loadTerminals}
+          />
+        )
+      case 'equipment-types':
+        return (
+          <EquipmentTypesTable
+            equipmentTypes={equipmentTypes}
+            equipmentTypesError={equipmentTypesError}
+            isEquipmentTypesLoading={isEquipmentTypesLoading}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onEquipmentTypeChanged={loadEquipmentTypes}
+          />
+        )
+      case 'equipment':
+        return (
+          <EquipmentsTable
+            equipments={equipments}
+            equipmentsError={equipmentsError}
+            isEquipmentsLoading={isEquipmentsLoading}
+            equipmentTypes={equipmentTypes}
+            companies={companies}
+            terminals={terminals}
+            currentUser={currentUser}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onEquipmentChanged={loadEquipments}
+          />
+        )
+      case 'reports':
+        return (
+          <Box sx={{ display: 'grid', gap: 1.5 }}>
+            <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
+              Reportes
+            </Typography>
+            <Typography color="text.secondary">Bienvenidos a reportes.</Typography>
+          </Box>
+        )
+      case 'samples':
+        return (
+          <SamplesTable
+            terminals={terminals}
+            equipments={equipments}
+            currentUser={currentUser}
+            tokenType={tokenType}
+            accessToken={accessToken}
+          />
+        )
+      case 'profile':
+      default:
+        return (
+          <ProfileSection
+            currentUser={currentUser}
+            currentUserError={currentUserError}
+            formatUserType={formatUserType}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onProfileUpdated={loadCurrentUser}
+          />
+        )
     }
-
-    setIsCompaniesLoading(true)
-    setCompaniesError('')
-
-    try {
-      const data = await fetchCompanies({ tokenType, accessToken })
-      setCompanies(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setCompaniesError(data.message)
-      }
-    } catch (err) {
-      setCompanies([])
-      setCompaniesError(err?.detail || 'Error de red al cargar empresas.')
-    } finally {
-      setIsCompaniesLoading(false)
-    }
-  }, [accessToken, tokenType, currentUser])
-
-  const refreshBlocks = useCallback(async () => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeBlocks = role === 'admin' || role === 'superadmin'
-
-    if (!accessToken || !canSeeBlocks) {
-      setBlocks([])
-      setBlocksError('')
-      setIsBlocksLoading(false)
-      return
-    }
-
-    setIsBlocksLoading(true)
-    setBlocksError('')
-
-    try {
-      const data = await fetchCompanyBlocks({ tokenType, accessToken })
-      setBlocks(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setBlocksError(data.message)
-      }
-    } catch (err) {
-      setBlocks([])
-      setBlocksError(err?.detail || 'Error de red al cargar bloques.')
-    } finally {
-      setIsBlocksLoading(false)
-    }
-  }, [accessToken, tokenType, currentUser])
-
-  const refreshTerminals = useCallback(async () => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeAllTerminals = role === 'admin' || role === 'superadmin'
-    const canSeeOwnTerminals = role === 'user'
-
-    if (!accessToken || (!canSeeAllTerminals && !canSeeOwnTerminals)) {
-      setTerminals([])
-      setTerminalsError('')
-      setIsTerminalsLoading(false)
-      return
-    }
-
-    if (canSeeOwnTerminals) {
-      const ownTerminals = Array.isArray(currentUser?.terminals)
-        ? currentUser.terminals
-        : []
-      setTerminals(ownTerminals)
-      setTerminalsError('')
-      setIsTerminalsLoading(false)
-      return
-    }
-
-    setIsTerminalsLoading(true)
-    setTerminalsError('')
-
-    try {
-      const data = await fetchCompanyTerminals({ tokenType, accessToken })
-      setTerminals(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setTerminalsError(data.message)
-      }
-    } catch (err) {
-      setTerminals([])
-      setTerminalsError(err?.detail || 'Error de red al cargar terminales.')
-    } finally {
-      setIsTerminalsLoading(false)
-    }
-  }, [accessToken, tokenType, currentUser])
-
-  const refreshEquipmentTypes = useCallback(async () => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeEquipmentTypes =
-      role === 'admin' || role === 'superadmin' || role === 'user'
-
-    if (!accessToken || !canSeeEquipmentTypes) {
-      setEquipmentTypes([])
-      setEquipmentTypesError('')
-      setIsEquipmentTypesLoading(false)
-      return
-    }
-
-    setIsEquipmentTypesLoading(true)
-    setEquipmentTypesError('')
-
-    try {
-      const data = await fetchEquipmentTypes({ tokenType, accessToken })
-      setEquipmentTypes(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setEquipmentTypesError(data.message)
-      }
-    } catch (err) {
-      setEquipmentTypes([])
-      setEquipmentTypesError(err?.detail || 'Error de red al cargar tipos de equipo.')
-    } finally {
-      setIsEquipmentTypesLoading(false)
-    }
-  }, [accessToken, tokenType, currentUser])
-
-  const refreshEquipments = useCallback(async () => {
-    const role = String(currentUser?.user_type || '').toLowerCase()
-    const canSeeEquipments = role === 'admin' || role === 'superadmin' || role === 'user'
-
-    if (!accessToken || !canSeeEquipments) {
-      setEquipments([])
-      setEquipmentsError('')
-      setIsEquipmentsLoading(false)
-      return
-    }
-
-    setIsEquipmentsLoading(true)
-    setEquipmentsError('')
-
-    try {
-      const data = await fetchEquipments({ tokenType, accessToken })
-      setEquipments(Array.isArray(data.items) ? data.items : [])
-      if (data.message && !data.items?.length) {
-        setEquipmentsError(data.message)
-      }
-    } catch (err) {
-      setEquipments([])
-      setEquipmentsError(err?.detail || 'Error de red al cargar equipos.')
-    } finally {
-      setIsEquipmentsLoading(false)
-    }
-  }, [accessToken, tokenType, currentUser])
-
-  useEffect(() => {
-    refreshUsers(statusFilter)
-  }, [refreshUsers, statusFilter])
-
-  useEffect(() => {
-    if (activeSection === 'companies' || activeSection === 'blocks') {
-      refreshCompanies()
-    }
-  }, [activeSection, refreshCompanies])
-
-  useEffect(() => {
-    if (activeSection === 'blocks') {
-      refreshBlocks()
-    }
-  }, [activeSection, refreshBlocks])
-
-  useEffect(() => {
-    if (activeSection === 'terminals') {
-      refreshCompanies()
-      refreshBlocks()
-      refreshTerminals()
-    }
-  }, [activeSection, refreshCompanies, refreshBlocks, refreshTerminals])
-
-  useEffect(() => {
-    if (activeSection === 'equipment-types') {
-      refreshEquipmentTypes()
-    }
-  }, [activeSection, refreshEquipmentTypes])
-
-  useEffect(() => {
-    if (activeSection === 'equipment') {
-      refreshEquipments()
-      refreshEquipmentTypes()
-      refreshCompanies()
-      refreshTerminals()
-    }
-  }, [activeSection, refreshEquipments, refreshEquipmentTypes, refreshCompanies, refreshTerminals])
+  }
 
   return (
     <DashboardLayout
@@ -330,82 +384,9 @@ const Dashboard = () => {
         />
       }
     >
-      {activeSection === 'users' ? (
-        <UsersTable
-          users={users}
-          usersError={usersError}
-          isUsersLoading={isUsersLoading}
-          formatUserType={formatUserType}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onUserCreated={refreshUsers}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-        />
-      ) : activeSection === 'companies' ? (
-        <CompaniesTable
-          companies={companies}
-          companiesError={companiesError}
-          isCompaniesLoading={isCompaniesLoading}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onCompanyChanged={refreshCompanies}
-        />
-      ) : activeSection === 'blocks' ? (
-        <CompanyBlocksTable
-          blocks={blocks}
-          blocksError={blocksError}
-          isBlocksLoading={isBlocksLoading}
-          companies={companies}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onBlockChanged={refreshBlocks}
-        />
-      ) : activeSection === 'terminals' ? (
-        <CompanyTerminalsTable
-          terminals={terminals}
-          terminalsError={terminalsError}
-          isTerminalsLoading={isTerminalsLoading}
-          companies={companies}
-          blocks={blocks}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onTerminalChanged={refreshTerminals}
-        />
-      ) : activeSection === 'equipment-types' ? (
-        <EquipmentTypesTable
-          equipmentTypes={equipmentTypes}
-          equipmentTypesError={equipmentTypesError}
-          isEquipmentTypesLoading={isEquipmentTypesLoading}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onEquipmentTypeChanged={refreshEquipmentTypes}
-        />
-        ) : activeSection === 'equipment' ? (
-          <EquipmentsTable
-            equipments={equipments}
-            equipmentsError={equipmentsError}
-            isEquipmentsLoading={isEquipmentsLoading}
-            equipmentTypes={equipmentTypes}
-            companies={companies}
-            terminals={terminals}
-            currentUser={currentUser}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onEquipmentChanged={refreshEquipments}
-          />
-      ) : (
-        <ProfileSection
-          currentUser={currentUser}
-          currentUserError={currentUserError}
-          formatUserType={formatUserType}
-          tokenType={tokenType}
-          accessToken={accessToken}
-          onProfileUpdated={setCurrentUser}
-        />
-      )}
+      {renderContent()}
     </DashboardLayout>
   )
 }
 
-export default Dashboard
+export default DashBoard

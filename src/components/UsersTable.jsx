@@ -654,6 +654,7 @@ const UsersTable = ({
             }}
           >
             <MenuItem value="all">Todos</MenuItem>
+            <MenuItem value="visitor">Visitante</MenuItem>
             <MenuItem value="user">Usuario</MenuItem>
             <MenuItem value="admin">Admin</MenuItem>
             <MenuItem value="superadmin">Superadmin</MenuItem>
@@ -1093,15 +1094,16 @@ const UsersTable = ({
               <Select
                 labelId="user-type-label"
                 label="Rol"
-                value={formData.user_type}
-                onChange={(event) =>
-                  setFormData((prev) => ({ ...prev, user_type: event.target.value }))
-                }
-              >
-                <MenuItem value="user">Usuario</MenuItem>
-                <MenuItem value="admin">Admin</MenuItem>
-                <MenuItem value="superadmin">Superadmin</MenuItem>
-              </Select>
+              value={formData.user_type}
+              onChange={(event) =>
+                setFormData((prev) => ({ ...prev, user_type: event.target.value }))
+              }
+            >
+              <MenuItem value="visitor">Visitante</MenuItem>
+              <MenuItem value="user">Usuario</MenuItem>
+              <MenuItem value="admin">Admin</MenuItem>
+              <MenuItem value="superadmin">Superadmin</MenuItem>
+            </Select>
             </FormControl>
           <FormControl>
             <InputLabel id="company-label">Empresa</InputLabel>
@@ -1322,6 +1324,7 @@ const UsersTable = ({
                 setEditData((prev) => ({ ...prev, user_type: event.target.value }))
               }
             >
+              <MenuItem value="visitor">Visitante</MenuItem>
               <MenuItem value="user">Usuario</MenuItem>
               <MenuItem value="admin">Admin</MenuItem>
               <MenuItem value="superadmin">Superadmin</MenuItem>

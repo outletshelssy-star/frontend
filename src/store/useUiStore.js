@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 
 const getInitialSection = () => {
-  if (typeof window === 'undefined') return 'profile'
-  return window.localStorage.getItem('ui.activeSection') || 'profile'
+  if (typeof window === 'undefined') return 'dashboard'
+  return window.localStorage.getItem('ui.activeSection') || 'dashboard'
 }
 
 const getInitialSidebarState = () => {

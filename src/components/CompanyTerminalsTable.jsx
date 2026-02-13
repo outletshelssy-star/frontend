@@ -71,6 +71,7 @@ const CompanyTerminalsTable = ({
     block_id: '',
     owner_company_id: '',
     admin_company_id: '',
+    terminal_code: '',
     is_active: true,
   })
   const [toast, setToast] = useState({
@@ -121,6 +122,8 @@ const CompanyTerminalsTable = ({
       switch (sortBy) {
         case 'name':
           return terminal.name || ''
+        case 'code':
+          return terminal.terminal_code || ''
         case 'block':
           return terminal.block?.name || ''
         case 'owner':
@@ -164,6 +167,7 @@ const CompanyTerminalsTable = ({
       block_id: blocks?.[0]?.id || '',
       owner_company_id: companies?.[0]?.id || '',
       admin_company_id: companies?.[0]?.id || '',
+      terminal_code: '',
       is_active: true,
     })
     setIsCreateOpen(true)
@@ -180,6 +184,7 @@ const CompanyTerminalsTable = ({
       block_id: terminal.block_id || '',
       owner_company_id: terminal.owner_company_id || '',
       admin_company_id: terminal.admin_company_id || '',
+      terminal_code: terminal.terminal_code || '',
       is_active: Boolean(terminal.is_active),
     })
     setIsEditOpen(true)
@@ -236,6 +241,14 @@ const CompanyTerminalsTable = ({
       })
       return
     }
+    if (!formData.terminal_code.trim()) {
+      setToast({
+        open: true,
+        message: 'El codigo del terminal es obligatorio.',
+        severity: 'error',
+      })
+      return
+    }
     if (!formData.block_id || !formData.owner_company_id || !formData.admin_company_id) {
       setToast({
         open: true,
@@ -255,6 +268,7 @@ const CompanyTerminalsTable = ({
           block_id: Number(formData.block_id),
           owner_company_id: Number(formData.owner_company_id),
           admin_company_id: Number(formData.admin_company_id),
+          terminal_code: formData.terminal_code?.trim() || null,
           is_active: formData.is_active,
         },
       })
@@ -287,6 +301,14 @@ const CompanyTerminalsTable = ({
       })
       return
     }
+    if (!formData.terminal_code.trim()) {
+      setToast({
+        open: true,
+        message: 'El codigo del terminal es obligatorio.',
+        severity: 'error',
+      })
+      return
+    }
     if (!formData.block_id || !formData.owner_company_id || !formData.admin_company_id) {
       setToast({
         open: true,
@@ -307,6 +329,7 @@ const CompanyTerminalsTable = ({
           block_id: Number(formData.block_id),
           owner_company_id: Number(formData.owner_company_id),
           admin_company_id: Number(formData.admin_company_id),
+          terminal_code: formData.terminal_code?.trim() || null,
           is_active: formData.is_active,
         },
       })
@@ -505,7 +528,16 @@ const CompanyTerminalsTable = ({
                     direction={sortBy === 'name' ? sortDir : 'asc'}
                     onClick={() => handleSort('name')}
                   >
-                    Nombre
+                    Nombre Terminal
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell align="left">
+                  <TableSortLabel
+                    active={sortBy === 'code'}
+                    direction={sortBy === 'code' ? sortDir : 'asc'}
+                    onClick={() => handleSort('code')}
+                  >
+                    Codigo
                   </TableSortLabel>
                 </TableCell>
                 <TableCell align="left">
@@ -560,6 +592,7 @@ const CompanyTerminalsTable = ({
                   }}
                 >
                   <TableCell>{terminal.name}</TableCell>
+                  <TableCell>{terminal.terminal_code || '-'}</TableCell>
                   <TableCell>{terminal.block?.name || '-'}</TableCell>
                   <TableCell>{terminal.owner_company?.name || '-'}</TableCell>
                   <TableCell>{terminal.admin_company?.name || '-'}</TableCell>
@@ -652,7 +685,24 @@ const CompanyTerminalsTable = ({
       ) : null}
       <Dialog open={isCreateOpen} onClose={closeCreate} fullWidth maxWidth="sm">
         <DialogTitle>Nuevo terminal</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}
@@ -660,6 +710,18 @@ const CompanyTerminalsTable = ({
               setFormData((prev) => ({ ...prev, name: event.target.value }))
             }
             required
+          />
+          <TextField
+            label="Codigo del terminal"
+            placeholder="Ej: ABC"
+            value={formData.terminal_code}
+            required
+            onChange={(event) =>
+              setFormData((prev) => ({
+                ...prev,
+                terminal_code: event.target.value,
+              }))
+            }
           />
           <FormControl>
             <InputLabel id="terminal-block-label">Bloque</InputLabel>
@@ -718,23 +780,6 @@ const CompanyTerminalsTable = ({
               ))}
             </Select>
           </FormControl>
-          <FormControl>
-            <InputLabel id="terminal-status-label">Estado</InputLabel>
-            <Select
-              labelId="terminal-status-label"
-              label="Estado"
-              value={formData.is_active ? 'active' : 'inactive'}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  is_active: event.target.value === 'active',
-                }))
-              }
-            >
-              <MenuItem value="active">Activo</MenuItem>
-              <MenuItem value="inactive">Inactivo</MenuItem>
-            </Select>
-          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCreate}>Cancelar</Button>
@@ -745,7 +790,24 @@ const CompanyTerminalsTable = ({
       </Dialog>
       <Dialog open={isEditOpen} onClose={closeEdit} fullWidth maxWidth="sm">
         <DialogTitle>Editar terminal</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}
@@ -753,6 +815,18 @@ const CompanyTerminalsTable = ({
               setFormData((prev) => ({ ...prev, name: event.target.value }))
             }
             required
+          />
+          <TextField
+            label="Codigo del terminal"
+            placeholder="Ej: ABC"
+            value={formData.terminal_code}
+            required
+            onChange={(event) =>
+              setFormData((prev) => ({
+                ...prev,
+                terminal_code: event.target.value,
+              }))
+            }
           />
           <FormControl>
             <InputLabel id="terminal-block-edit">Bloque</InputLabel>
@@ -855,6 +929,10 @@ const CompanyTerminalsTable = ({
             Empresa admin
           </Typography>
           <Typography>{viewTerminal?.admin_company?.name || '-'}</Typography>
+          <Typography variant="subtitle2" color="text.secondary">
+            Codigo del terminal
+          </Typography>
+          <Typography>{viewTerminal?.terminal_code || '-'}</Typography>
           <Typography variant="subtitle2" color="text.secondary">
             Estado
           </Typography>

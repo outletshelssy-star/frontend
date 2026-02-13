@@ -316,6 +316,26 @@ const uploadEquipmentCalibrationCertificate = async ({
   return handleJson(response)
 }
 
+const calculateHydrometerApi60f = async ({
+  tokenType,
+  accessToken,
+  temp_obs_f,
+  lectura_api,
+}) => {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/hydrometer/api60f`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ temp_obs_f, lectura_api }),
+    }
+  )
+  return handleJson(response)
+}
+
 const updateEquipmentVerification = async ({
   tokenType,
   accessToken,
@@ -841,6 +861,55 @@ const fetchCompanyById = async ({ tokenType, accessToken, companyId }) => {
   return handleJson(response)
 }
 
+const fetchSamplesByTerminal = async ({ tokenType, accessToken, terminalId }) => {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/samples/terminal/${terminalId}`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const createSample = async ({ tokenType, accessToken, payload }) => {
+  const response = await fetch(`${apiBaseUrl}/api/v1/samples`, {
+    method: 'POST',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleJson(response)
+}
+
+const updateSample = async ({ tokenType, accessToken, sampleId, payload }) => {
+  const response = await fetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleJson(response)
+}
+
+const deleteSample = async ({ tokenType, accessToken, sampleId }) => {
+  const response = await fetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
+  if (response.status === 204) {
+    return { ok: true }
+  }
+  return handleJson(response)
+}
+
 export {
   createUser,
   fetchCompanies,
@@ -859,6 +928,10 @@ export {
   updateCompany,
   deleteCompany,
   fetchCompanyById,
+  fetchSamplesByTerminal,
+  createSample,
+  updateSample,
+  deleteSample,
   fetchCompanyBlocks,
   fetchCompanyBlockById,
   createCompanyBlock,
@@ -885,6 +958,7 @@ export {
   updateEquipmentVerification,
   updateEquipmentCalibration,
   uploadEquipmentCalibrationCertificate,
+  calculateHydrometerApi60f,
   createEquipmentTypeVerification,
   updateEquipmentTypeVerification,
   deleteEquipmentTypeVerification,

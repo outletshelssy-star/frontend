@@ -611,7 +611,24 @@ const CompanyBlocksTable = ({
       ) : null}
       <Dialog open={isCreateOpen} onClose={closeCreate} fullWidth maxWidth="sm">
         <DialogTitle>Nuevo bloque</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}
@@ -637,23 +654,6 @@ const CompanyBlocksTable = ({
               ))}
             </Select>
           </FormControl>
-          <FormControl>
-            <InputLabel id="block-status-label">Estado</InputLabel>
-            <Select
-              labelId="block-status-label"
-              label="Estado"
-              value={formData.is_active ? 'active' : 'inactive'}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  is_active: event.target.value === 'active',
-                }))
-              }
-            >
-              <MenuItem value="active">Activo</MenuItem>
-              <MenuItem value="inactive">Inactivo</MenuItem>
-            </Select>
-          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCreate}>Cancelar</Button>
@@ -664,7 +664,24 @@ const CompanyBlocksTable = ({
       </Dialog>
       <Dialog open={isEditOpen} onClose={closeEdit} fullWidth maxWidth="sm">
         <DialogTitle>Editar bloque</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent
+          sx={{
+            display: 'grid',
+            gap: 2,
+            pt: 1,
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
+          }}
+        >
           <TextField
             label="Nombre"
             value={formData.name}

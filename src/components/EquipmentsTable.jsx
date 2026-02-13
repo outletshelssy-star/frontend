@@ -61,6 +61,7 @@ import {
   fetchEquipmentTypeVerifications,
   fetchEquipmentTypeVerificationItems,
   uploadEquipmentCalibrationCertificate,
+  calculateHydrometerApi60f,
   updateEquipmentInspection,
   updateEquipmentVerification,
   updateEquipmentCalibration,
@@ -156,6 +157,7 @@ const EquipmentsTable = ({
     calibrated_at: '',
     calibration_company_id: '',
     calibration_company_name: '',
+    certificate_number: '',
     notes: '',
   })
   const [calibrationResults, setCalibrationResults] = useState([])
@@ -184,11 +186,22 @@ const EquipmentsTable = ({
   const [verificationItems, setVerificationItems] = useState([])
   const [verificationEditMode, setVerificationEditMode] = useState(false)
   const [verificationEditingId, setVerificationEditingId] = useState(null)
+  const [hydrometerWorkApi60f, setHydrometerWorkApi60f] = useState('')
+  const [hydrometerWorkApi60fError, setHydrometerWorkApi60fError] = useState('')
+  const [hydrometerRefApi60f, setHydrometerRefApi60f] = useState('')
+  const [hydrometerRefApi60fError, setHydrometerRefApi60fError] = useState('')
   const [verificationForm, setVerificationForm] = useState({
     verification_type_id: '',
     notes: '',
     verified_at: '',
     reference_equipment_id: '',
+    product_name: 'Crudo',
+    thermometer_working_id: '',
+    hydrometer_working_value: '',
+    hydrometer_reference_value: '',
+    thermometer_working_value: '',
+    thermometer_reference_value: '',
+    thermometer_unit: 'c',
     reading_under_test_f: '',
     reference_reading_f: '',
     reading_under_test_high_value: '',
@@ -229,11 +242,13 @@ model: '',
   })
 
   const role = String(currentUser?.user_type || '').toLowerCase()
+  const isReadOnly = role === 'visitor'
   const canFilterActive = role === 'superadmin'
   const canSeeAdminStatus = role === 'admin' || role === 'superadmin'
   const canEditInspectionDate = role === 'admin' || role === 'superadmin'
   const canEditVerificationDate = role === 'admin' || role === 'superadmin'
   const canEditCalibrationDate = role === 'admin' || role === 'superadmin'
+  const canDeleteEquipment = role === 'admin' || role === 'superadmin'
   const hasActiveFilters =
     query.trim().length > 0 ||
     statusFilter !== 'all' ||
@@ -385,6 +400,13 @@ model: '',
     )
   }
 
+  const isHydrometerEquipment = (equipment) => {
+    const typeName = String(equipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase()
+    return typeName === 'hidrometro'
+  }
+
   const formatTapeReadingsLabel = (values = [], unit) => {
     const cleaned = values
       .filter((value) => value !== null && value !== undefined && value !== '')
@@ -439,6 +461,132 @@ model: '',
   )
 
   const isMonthlyVerification = Number(selectedVerificationType?.frequency_days) === 30
+  const isHydrometerMonthlyVerification =
+    isHydrometerEquipment(verificationEquipment) && isMonthlyVerification
+
+  useEffect(() => {
+    if (!isHydrometerMonthlyVerification || !accessToken) {
+      setHydrometerWorkApi60f('')
+      setHydrometerWorkApi60fError('')
+      return
+    }
+    if (
+      String(verificationForm.hydrometer_working_value || '').trim() === '' ||
+      String(verificationForm.thermometer_working_value || '').trim() === ''
+    ) {
+      setHydrometerWorkApi60f('')
+      setHydrometerWorkApi60fError('')
+      return
+    }
+    const rawApi = Number(verificationForm.hydrometer_working_value)
+    const rawTemp = Number(verificationForm.thermometer_working_value)
+    if (Number.isNaN(rawApi) || Number.isNaN(rawTemp) || rawApi <= 0) {
+      setHydrometerWorkApi60f('')
+      setHydrometerWorkApi60fError('')
+      return
+    }
+    const unit = verificationForm.thermometer_unit || 'c'
+    const tempF = convertTemperatureToFDisplay(rawTemp, unit)
+    if (tempF === null || Number.isNaN(Number(tempF))) {
+      setHydrometerWorkApi60f('')
+      setHydrometerWorkApi60fError('')
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const data = await calculateHydrometerApi60f({
+          tokenType,
+          accessToken,
+          temp_obs_f: Number(tempF),
+          lectura_api: rawApi,
+        })
+        if (cancelled) return
+        setHydrometerWorkApi60f(
+          data?.api_60f !== undefined && data?.api_60f !== null
+            ? String(data.api_60f)
+            : ''
+        )
+        setHydrometerWorkApi60fError('')
+      } catch (err) {
+        if (cancelled) return
+        setHydrometerWorkApi60f('')
+        setHydrometerWorkApi60fError(err?.detail || 'No se pudo calcular API a 60F.')
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    isHydrometerMonthlyVerification,
+    accessToken,
+    tokenType,
+    verificationForm.hydrometer_working_value,
+    verificationForm.thermometer_working_value,
+  ])
+
+  useEffect(() => {
+    if (!isHydrometerMonthlyVerification || !accessToken) {
+      setHydrometerRefApi60f('')
+      setHydrometerRefApi60fError('')
+      return
+    }
+    if (
+      String(verificationForm.hydrometer_reference_value || '').trim() === '' ||
+      String(verificationForm.thermometer_reference_value || '').trim() === ''
+    ) {
+      setHydrometerRefApi60f('')
+      setHydrometerRefApi60fError('')
+      return
+    }
+    const rawApi = Number(verificationForm.hydrometer_reference_value)
+    const rawTemp = Number(verificationForm.thermometer_reference_value)
+    if (Number.isNaN(rawApi) || Number.isNaN(rawTemp) || rawApi <= 0) {
+      setHydrometerRefApi60f('')
+      setHydrometerRefApi60fError('')
+      return
+    }
+    const unit = verificationForm.thermometer_unit || 'c'
+    const tempF = convertTemperatureToFDisplay(rawTemp, unit)
+    if (tempF === null || Number.isNaN(Number(tempF))) {
+      setHydrometerRefApi60f('')
+      setHydrometerRefApi60fError('')
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const data = await calculateHydrometerApi60f({
+          tokenType,
+          accessToken,
+          temp_obs_f: Number(tempF),
+          lectura_api: rawApi,
+        })
+        if (cancelled) return
+        setHydrometerRefApi60f(
+          data?.api_60f !== undefined && data?.api_60f !== null
+            ? String(data.api_60f)
+            : ''
+        )
+        setHydrometerRefApi60fError('')
+      } catch (err) {
+        if (cancelled) return
+        setHydrometerRefApi60f('')
+        setHydrometerRefApi60fError(err?.detail || 'No se pudo calcular API a 60F.')
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    isHydrometerMonthlyVerification,
+    accessToken,
+    tokenType,
+    verificationForm.hydrometer_reference_value,
+    verificationForm.thermometer_reference_value,
+  ])
 
   const referenceEquipmentOptions = useMemo(() => {
     if (!requiresComparisonReadings || !verificationEquipment) return []
@@ -447,6 +595,7 @@ model: '',
       if (!item?.id || item.id === verificationEquipment.id) return false
       if (item.terminal_id !== verificationEquipment.terminal_id) return false
       if (item.is_active === false) return false
+      if (item.status !== 'in_use') return false
       const candidateRole = String(item?.equipment_type?.role || '').toLowerCase()
       if (candidateRole !== 'reference') return false
       if (!isTape) return true
@@ -459,6 +608,38 @@ model: '',
       )
     })
   }, [equipments, verificationEquipment, requiresComparisonReadings, requiresTapeComparison])
+
+  const hydrometerReferenceOptions = useMemo(() => {
+    if (!verificationEquipment || !isHydrometerMonthlyVerification) return []
+    return (equipments || []).filter((item) => {
+      if (!item?.id || item.id === verificationEquipment.id) return false
+      if (item.terminal_id !== verificationEquipment.terminal_id) return false
+      if (item.is_active === false) return false
+      if (item.status !== 'in_use') return false
+      const candidateRole = String(item?.equipment_type?.role || '').toLowerCase()
+      if (candidateRole !== 'reference') return false
+      const candidateName = String(item?.equipment_type?.name || '')
+        .trim()
+        .toLowerCase()
+      return candidateName === 'hidrometro'
+    })
+  }, [equipments, verificationEquipment, isHydrometerMonthlyVerification])
+
+  const hydrometerThermometerOptions = useMemo(() => {
+    if (!verificationEquipment || !isHydrometerMonthlyVerification) return []
+    return (equipments || []).filter((item) => {
+      if (!item?.id) return false
+      if (item.terminal_id !== verificationEquipment.terminal_id) return false
+      if (item.is_active === false) return false
+      if (item.status !== 'in_use') return false
+      const roleType = String(item?.equipment_type?.role || '').toLowerCase()
+      if (roleType !== 'working') return false
+      const name = String(item?.equipment_type?.name || '')
+        .trim()
+        .toLowerCase()
+      return name.includes('termometro')
+    })
+  }, [equipments, verificationEquipment, isHydrometerMonthlyVerification])
 
   const handleClearFilters = () => {
     setQuery('')
@@ -709,9 +890,17 @@ model: '',
     return latest.toLocaleDateString()
   }
 
+  const getEquipmentTypeFor = (equipment) => {
+    if (!equipment) return null
+    if (equipment.equipment_type) return equipment.equipment_type
+    if (!equipment.equipment_type_id) return null
+    return (equipmentTypes || []).find((type) => type.id === equipment.equipment_type_id) || null
+  }
+
   const getInspectionFrequencyLabel = (equipment) => {
+    const equipmentType = getEquipmentTypeFor(equipment)
     const days =
-      equipment?.inspection_days_override ?? equipment?.equipment_type?.inspection_days
+      equipment?.inspection_days_override ?? equipmentType?.inspection_days
     if (!days || Number(days) === 0) {
       return 'No aplica'
     }
@@ -785,7 +974,8 @@ model: '',
   }
 
   const getCalibrationFrequencyLabel = (equipment) => {
-    const days = equipment?.equipment_type?.calibration_days
+    const equipmentType = getEquipmentTypeFor(equipment)
+    const days = equipmentType?.calibration_days
     if (!days || Number(days) === 0) {
       return 'No aplica'
     }
@@ -803,17 +993,12 @@ model: '',
         </Box>
       )
     }
-    const companyLabel =
-      latest.calibration_company_name ||
-      latest.calibration_company?.name ||
-      (latest.calibration_company_id ? `Empresa ${latest.calibration_company_id}` : '-')
     return (
       <Box sx={{ display: 'grid', gap: 0.25 }}>
         <Typography variant="caption">
           Ultima: {latest.date.toLocaleDateString()}
         </Typography>
         <Typography variant="caption">Frecuencia: {frequency}</Typography>
-        <Typography variant="caption">Empresa: {companyLabel}</Typography>
       </Box>
     )
   }
@@ -1104,16 +1289,38 @@ model: '',
     return getLastVerificationDateLabel(filtered)
   }
 
-  const getVerificationStatusForType = (equipment, typeId) => {
-    if (!equipment || !typeId) {
+  const isVerificationWithinFrequency = (verifiedAt, frequencyDays) => {
+    if (!verifiedAt || !frequencyDays || frequencyDays <= 0) return false
+    const verifiedDate = new Date(verifiedAt)
+    if (Number.isNaN(verifiedDate.getTime())) return false
+    const today = new Date()
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const verifiedMidnight = new Date(
+      verifiedDate.getFullYear(),
+      verifiedDate.getMonth(),
+      verifiedDate.getDate(),
+    )
+    const diffMs = todayMidnight.getTime() - verifiedMidnight.getTime()
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+    if (diffDays < 0) return false
+    return frequencyDays === 1 ? diffDays === 0 : diffDays < frequencyDays
+  }
+
+  const getVerificationStatusForType = (equipment, typeItem) => {
+    if (!equipment || !typeItem?.id) {
       return { hasApproved: false, lastLabel: 'Sin verificaciones' }
     }
     const verifications = Array.isArray(equipment?.verifications) ? equipment.verifications : []
     const filtered = verifications.filter(
       (verification) =>
-        String(verification?.verification_type_id) === String(typeId),
+        String(verification?.verification_type_id) === String(typeItem.id),
     )
-    const hasApproved = filtered.some((verification) => verification?.is_ok === true)
+    const frequencyDays = Number(typeItem?.frequency_days ?? 0)
+    const hasApproved = filtered.some(
+      (verification) =>
+        verification?.is_ok === true &&
+        isVerificationWithinFrequency(verification?.verified_at, frequencyDays),
+    )
     const lastLabel = getLastVerificationDateLabel(filtered)
     return { hasApproved, lastLabel }
   }
@@ -1268,6 +1475,63 @@ model: '',
     }
   }
 
+  const parseHydrometerMonthlyFromNotes = (notes) => {
+    const text = String(notes || '')
+    const lower = text.toLowerCase()
+    if (!lower.includes('hidrometro mensual') && !lower.includes('[[hidrometro_data]]')) {
+      return null
+    }
+    const payloadText = lower.includes('[[hidrometro_data]]')
+      ? text.slice(text.toLowerCase().indexOf('[[hidrometro_data]]'))
+      : text
+    const extractNumber = (label) => {
+      const match = payloadText.match(new RegExp(`${label}\\s*:\\s*(\\d+)`, 'i'))
+      return match ? match[1] : ''
+    }
+    const extractText = (label) => {
+      const match = payloadText.match(new RegExp(`${label}\\s*:\\s*([^|\\n]+)`, 'i'))
+      return match ? match[1].trim() : ''
+    }
+    const extractValueUnit = (label) => {
+      const match = text.match(
+        new RegExp(`${label}\\s*:\\s*([-+]?\\d*[\\.,]?\\d+)\\s*([a-zA-Z°]+)?`, 'i')
+      )
+      if (!match) return { value: '', unit: '' }
+      return { value: match[1], unit: match[2] || '' }
+    }
+    const productName = extractText('Producto') || 'Crudo'
+    const thermometerId = extractNumber('Termometro trabajo ID')
+    const tempWork = extractValueUnit('Temp trabajo')
+    const tempRef = extractValueUnit('Temp patron')
+    const hydroWork = extractValueUnit('Hidrometro trabajo')
+    const hydroRef = extractValueUnit('Hidrometro patron')
+    const patronId = extractNumber('Patron ID')
+    if (!hydroWork.value || !hydroRef.value) {
+      return null
+    }
+    return {
+      product_name: productName,
+      thermometer_working_id: thermometerId,
+      thermometer_working_value: tempWork.value,
+      thermometer_reference_value: tempRef.value,
+      thermometer_unit: (tempWork.unit || tempRef.unit || 'c').toLowerCase(),
+      hydrometer_working_value: hydroWork.value,
+      hydrometer_reference_value: hydroRef.value,
+      reference_equipment_id: patronId,
+    }
+  }
+
+  const stripHydrometerNotes = (notes = '') => {
+    const text = String(notes || '')
+    const markerIndex = text.toLowerCase().indexOf('[[hidrometro_data]]')
+    if (markerIndex >= 0) {
+      return text.slice(0, markerIndex).trim()
+    }
+    return text
+      .replace(/\s*Hidrometro mensual[\s\S]*$/i, '')
+      .trim()
+  }
+
 
   const getUnitOptions = (measure) => {
     switch (measure) {
@@ -1295,6 +1559,8 @@ model: '',
         ]
       case 'pressure':
         return [{ value: 'pa', label: 'Pa' }]
+      case 'api':
+        return [{ value: 'api', label: '°API' }]
       default:
         return []
     }
@@ -1310,6 +1576,8 @@ model: '',
         return 'mm'
       case 'pressure':
         return 'Pa'
+      case 'api':
+        return '°API'
       default:
         return ''
     }
@@ -1325,6 +1593,8 @@ model: '',
         return 'mm'
       case 'pressure':
         return 'pa'
+      case 'api':
+        return 'api'
       default:
         return ''
     }
@@ -1407,8 +1677,58 @@ model: '',
     setIsCalibrationHistoryOpen(false)
   }
 
+  const openCalibrationHistoryEdit = (equipment, calibration) => {
+    if (!equipment || !calibration) return
+    const isHydrometer = isHydrometerEquipment(equipment)
+    setCalibrationEquipment(equipment)
+    setCalibrationEditMode(true)
+    setCalibrationEditingId(calibration.id || null)
+    setCalibrationForm({
+      calibrated_at: canEditCalibrationDate && calibration.calibrated_at
+        ? new Date(calibration.calibrated_at).toISOString().slice(0, 10)
+        : '',
+      calibration_company_id: calibration.calibration_company_id
+        ? String(calibration.calibration_company_id)
+        : '',
+      calibration_company_name: calibration.calibration_company_name || '',
+      certificate_number: calibration.certificate_number || '',
+      notes: calibration.notes || '',
+    })
+    const results = Array.isArray(calibration.results) ? calibration.results : []
+    setCalibrationResults(
+      results.length
+        ? results.map((row) => ({
+            point_label: row.point_label || '',
+            reference_value: row.reference_value ?? '',
+            measured_value: row.measured_value ?? '',
+            unit: row.unit || (isHydrometer ? 'api' : ''),
+            error_value: row.error_value ?? '',
+            tolerance_value: row.tolerance_value ?? '',
+            is_ok:
+              row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
+            notes: row.notes || '',
+          }))
+        : [
+            {
+              point_label: '',
+              reference_value: '',
+              measured_value: '',
+              unit: isHydrometer ? 'api' : '',
+              error_value: '',
+              tolerance_value: '',
+              is_ok: '',
+              notes: '',
+            },
+          ]
+    )
+    setCalibrationFile(null)
+    setIsCalibrationHistoryOpen(false)
+    setIsCalibrationOpen(true)
+  }
+
   const openCalibration = (equipment) => {
     const today = new Date().toISOString().slice(0, 10)
+    const isHydrometer = isHydrometerEquipment(equipment)
     const calibrations = Array.isArray(equipment?.calibrations)
       ? equipment.calibrations
       : []
@@ -1427,6 +1747,7 @@ model: '',
           ? String(latest.calibration_company_id)
           : '',
         calibration_company_name: latest.calibration_company_name || '',
+        certificate_number: latest.certificate_number || '',
         notes: latest.notes || '',
       })
       const results = Array.isArray(latest.results) ? latest.results : []
@@ -1436,7 +1757,7 @@ model: '',
               point_label: row.point_label || '',
               reference_value: row.reference_value ?? '',
               measured_value: row.measured_value ?? '',
-              unit: row.unit || '',
+              unit: row.unit || (isHydrometer ? 'api' : ''),
               error_value: row.error_value ?? '',
               tolerance_value: row.tolerance_value ?? '',
               is_ok:
@@ -1448,7 +1769,7 @@ model: '',
                 point_label: '',
                 reference_value: '',
                 measured_value: '',
-                unit: '',
+                unit: isHydrometer ? 'api' : '',
                 error_value: '',
                 tolerance_value: '',
                 is_ok: '',
@@ -1463,6 +1784,7 @@ model: '',
         calibrated_at: canEditCalibrationDate ? today : '',
         calibration_company_id: '',
         calibration_company_name: '',
+        certificate_number: '',
         notes: '',
       })
       setCalibrationResults([
@@ -1470,7 +1792,7 @@ model: '',
           point_label: '',
           reference_value: '',
           measured_value: '',
-          unit: '',
+          unit: isHydrometer ? 'api' : '',
           error_value: '',
           tolerance_value: '',
           is_ok: '',
@@ -1489,6 +1811,7 @@ model: '',
       calibrated_at: '',
       calibration_company_id: '',
       calibration_company_name: '',
+      certificate_number: '',
       notes: '',
     })
     setCalibrationResults([])
@@ -1574,7 +1897,15 @@ model: '',
         }
       })
     }
-    const { cleanNotes, parsed } = parseComparisonFromNotes(verification.notes || '')
+    const rawNotes = String(verification.notes || '').trim()
+    const isHydrometer = isHydrometerEquipment(viewEquipment)
+    const { cleanNotes, parsed } = isHydrometer
+      ? { cleanNotes: stripHydrometerNotes(rawNotes), parsed: null }
+      : parseComparisonFromNotes(verification.notes || '')
+    const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes || rawNotes)
+    const normalizedNotes = cleanedHydrometerNotes || ''
+    const shouldClearNotes = isHydrometer
+    const hydrometerParsed = parseHydrometerMonthlyFromNotes(verification.notes || '')
     const monthlyFromApi = {
       reading_under_test_high_value: verification?.reading_under_test_high_value,
       reading_under_test_mid_value: verification?.reading_under_test_mid_value,
@@ -1593,9 +1924,16 @@ model: '',
     setVerificationEditingId(verification.id || null)
     setVerificationForm({
       verification_type_id: String(verification?.verification_type_id || ''),
-      notes: cleanNotes,
+      notes: shouldClearNotes ? '' : normalizedNotes,
       verified_at: canEditVerificationDate ? verifiedDate : '',
       reference_equipment_id: parsed?.reference_equipment_id || '',
+      product_name: hydrometerParsed?.product_name || 'Crudo',
+      thermometer_working_id: hydrometerParsed?.thermometer_working_id || '',
+      hydrometer_working_value: hydrometerParsed?.hydrometer_working_value || '',
+      hydrometer_reference_value: hydrometerParsed?.hydrometer_reference_value || '',
+      thermometer_working_value: hydrometerParsed?.thermometer_working_value || '',
+      thermometer_reference_value: hydrometerParsed?.thermometer_reference_value || '',
+      thermometer_unit: hydrometerParsed?.thermometer_unit || 'c',
       reading_under_test_f: parsed?.reading_under_test_f || '',
       reference_reading_f: parsed?.reference_reading_f || '',
       reading_under_test_high_value:
@@ -1771,6 +2109,13 @@ model: '',
       notes: '',
       verified_at: canEditVerificationDate ? today : '',
       reference_equipment_id: '',
+      product_name: 'Crudo',
+      thermometer_working_id: '',
+      hydrometer_working_value: '',
+      hydrometer_reference_value: '',
+      thermometer_working_value: '',
+      thermometer_reference_value: '',
+      thermometer_unit: 'c',
       reading_under_test_f: '',
       reference_reading_f: '',
       reading_under_test_high_value: '',
@@ -1840,7 +2185,15 @@ model: '',
               }
             })
           }
-          const { cleanNotes, parsed } = parseComparisonFromNotes(latest.notes || '')
+          const rawNotes = String(latest.notes || '').trim()
+          const isHydrometer = isHydrometerEquipment(equipment)
+          const { cleanNotes, parsed } = isHydrometer
+            ? { cleanNotes: stripHydrometerNotes(rawNotes), parsed: null }
+            : parseComparisonFromNotes(latest.notes || '')
+          const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes || rawNotes)
+          const normalizedNotes = cleanedHydrometerNotes || ''
+          const shouldClearNotes = isHydrometer
+          const hydrometerParsed = parseHydrometerMonthlyFromNotes(latest.notes || '')
           const monthlyFromApi = {
             reading_under_test_high_value: latest?.reading_under_test_high_value,
             reading_under_test_mid_value: latest?.reading_under_test_mid_value,
@@ -1853,13 +2206,29 @@ model: '',
           }
           setVerificationForm((prev) => ({
             ...prev,
-            notes: cleanNotes,
+            notes: shouldClearNotes ? '' : normalizedNotes,
             verified_at: canEditVerificationDate
               ? new Date(latest.verified_at).toISOString().slice(0, 10)
               : prev.verified_at,
             responses: responsesById,
             reference_equipment_id:
-              parsed?.reference_equipment_id || prev.reference_equipment_id,
+              parsed?.reference_equipment_id ||
+              hydrometerParsed?.reference_equipment_id ||
+              prev.reference_equipment_id,
+            product_name: hydrometerParsed?.product_name || prev.product_name,
+            thermometer_working_id:
+              hydrometerParsed?.thermometer_working_id || prev.thermometer_working_id,
+            hydrometer_working_value:
+              hydrometerParsed?.hydrometer_working_value || prev.hydrometer_working_value,
+            hydrometer_reference_value:
+              hydrometerParsed?.hydrometer_reference_value || prev.hydrometer_reference_value,
+            thermometer_working_value:
+              hydrometerParsed?.thermometer_working_value || prev.thermometer_working_value,
+            thermometer_reference_value:
+              hydrometerParsed?.thermometer_reference_value ||
+              prev.thermometer_reference_value,
+            thermometer_unit:
+              hydrometerParsed?.thermometer_unit || prev.thermometer_unit,
             reading_under_test_f:
               parsed?.reading_under_test_f || prev.reading_under_test_f,
             reading_unit_under_test:
@@ -1917,11 +2286,22 @@ model: '',
     setVerificationEquipment(null)
     setVerificationTypes([])
     setVerificationItems([])
+    setHydrometerWorkApi60f('')
+    setHydrometerWorkApi60fError('')
+    setHydrometerRefApi60f('')
+    setHydrometerRefApi60fError('')
     setVerificationForm({
       verification_type_id: '',
       notes: '',
       verified_at: '',
       reference_equipment_id: '',
+      product_name: 'Crudo',
+      thermometer_working_id: '',
+      hydrometer_working_value: '',
+      hydrometer_reference_value: '',
+      thermometer_working_value: '',
+      thermometer_reference_value: '',
+      thermometer_unit: 'c',
       reading_under_test_f: '',
       reference_reading_f: '',
       reading_under_test_high_value: '',
@@ -2026,30 +2406,32 @@ applyMeasureSpecs(specList, measures)
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
           Equipos
         </Typography>
-        <Button
-          type="button"
-          variant="contained"
-          size="small"
-          startIcon={<Add fontSize="small" />}
-          onClick={() => {
-            setFormData({
-              internal_code: '',
-              serial: '',
-component_serials_text: '',
-model: '',
-              brand: '',
-              status: 'in_use',
-              equipment_type_id: '',
-              owner_company_id: '',
-              terminal_id: '',
-            })
-            setMeasureSpecs({})
-            setIsCreateOpen(true)
-          }}
-          sx={{ height: 40 }}
-        >
-          Nuevo equipo
-        </Button>
+        {!isReadOnly ? (
+          <Button
+            type="button"
+            variant="contained"
+            size="small"
+            startIcon={<Add fontSize="small" />}
+            onClick={() => {
+              setFormData({
+                internal_code: '',
+                serial: '',
+                component_serials_text: '',
+                model: '',
+                brand: '',
+                status: 'in_use',
+                equipment_type_id: '',
+                owner_company_id: '',
+                terminal_id: '',
+              })
+              setMeasureSpecs({})
+              setIsCreateOpen(true)
+            }}
+            sx={{ height: 40 }}
+          >
+            Nuevo equipo
+          </Button>
+        ) : null}
       </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <TextField
@@ -2202,9 +2584,9 @@ model: '',
                               </TableSortLabel>
                             </TableCell>
                             
+                          <TableCell align="center">Calibracion</TableCell>
                           <TableCell align="center">Inspeccion</TableCell>
                           <TableCell align="center">Verificacion</TableCell>
-                          <TableCell align="center">Calibracion</TableCell>
                           <TableCell align="center">Acciones</TableCell>
                         </TableRow>
                       </TableHead>
@@ -2244,31 +2626,55 @@ model: '',
                             
                             <TableCell align="center">
                               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                <Tooltip title={getCalibrationTooltip(item)} arrow placement="top">
+                                  <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+                                    {renderCalibrationBadge(item?.calibrations)}
+                                  </Box>
+                                </Tooltip>
+                                {!isReadOnly ? (
+                                  <Tooltip title="Registrar calibracion" arrow>
+                                    <IconButton
+                                      size="small"
+                                      aria-label="Registrar calibracion"
+                                      onClick={() => openCalibration(item)}
+                                      disabled={item.status !== 'in_use'}
+                                      sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                                    >
+                                      <FactCheck fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                ) : null}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                                 <Tooltip title={getInspectionTooltip(item)} arrow placement="top">
                                   <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
                                     {renderInspectionBadge(item)}
                                   </Box>
                                 </Tooltip>
-                                <Tooltip
-                                  title={
-                                    !isCalibrationVigente(item)
-                                      ? 'Se requiere calibracion vigente'
-                                      : 'Registrar inspeccion'
-                                  }
-                                  arrow
-                                >
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      aria-label="Registrar inspeccion"
-                                      onClick={() => openInspection(item)}
-                                      disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
-                                      sx={{ color: '#64748b', '&:hover': { color: '#2563eb' } }}
-                                    >
-                                      <FactCheck fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
+                                {!isReadOnly ? (
+                                  <Tooltip
+                                    title={
+                                      !isCalibrationVigente(item)
+                                        ? 'Se requiere calibracion vigente'
+                                        : 'Registrar inspeccion'
+                                    }
+                                    arrow
+                                  >
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        aria-label="Registrar inspeccion"
+                                        onClick={() => openInspection(item)}
+                                        disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
+                                        sx={{ color: '#64748b', '&:hover': { color: '#2563eb' } }}
+                                      >
+                                        <FactCheck fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                ) : null}
                               </Box>
                             </TableCell>
                             <TableCell align="center">
@@ -2302,7 +2708,7 @@ model: '',
                                     {verificationTypesForRow.map((typeItem, index) => {
                                       const { hasApproved } = getVerificationStatusForType(
                                         item,
-                                        typeItem.id,
+                                        typeItem,
                                       )
                                       return (
                                         <Box
@@ -2340,52 +2746,34 @@ model: '',
                                             )}
                                           </Box>
                                         </Tooltip>
-                                        <Tooltip
-                                          title={
-                                            !isCalibrationVigente(item)
-                                              ? 'Se requiere calibracion vigente'
-                                              : 'Registrar verificacion'
-                                          }
-                                          arrow
-                                        >
-                                          <span>
-                                            <IconButton
-                                              size="small"
-                                              aria-label="Registrar verificacion"
-                                              onClick={() => openVerification(item, typeItem.id)}
-                                              disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
-                                              sx={{ color: '#64748b', '&:hover': { color: '#16a34a' } }}
-                                            >
-                                              <VerifiedOutlined fontSize="small" />
-                                            </IconButton>
-                                          </span>
-                                        </Tooltip>
+                                        {!isReadOnly ? (
+                                          <Tooltip
+                                            title={
+                                              !isCalibrationVigente(item)
+                                                ? 'Se requiere calibracion vigente'
+                                                : 'Registrar verificacion'
+                                            }
+                                            arrow
+                                          >
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                aria-label="Registrar verificacion"
+                                                onClick={() => openVerification(item, typeItem.id)}
+                                                disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
+                                                sx={{ color: '#64748b', '&:hover': { color: '#16a34a' } }}
+                                              >
+                                                <VerifiedOutlined fontSize="small" />
+                                              </IconButton>
+                                            </span>
+                                          </Tooltip>
+                                        ) : null}
                                       </Box>
                                     )
                                     })}
                                   </Box>
                                 )
                               })()}
-                            </TableCell>
-                            <TableCell align="center">
-                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                                <Tooltip title={getCalibrationTooltip(item)} arrow placement="top">
-                                  <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                                    {renderCalibrationBadge(item?.calibrations)}
-                                  </Box>
-                                </Tooltip>
-                                <Tooltip title="Registrar calibracion" arrow>
-                                  <IconButton
-                                    size="small"
-                                    aria-label="Registrar calibracion"
-                                    onClick={() => openCalibration(item)}
-                                    disabled={item.status !== 'in_use'}
-                                    sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
-                                  >
-                                    <FactCheck fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
                             </TableCell>
                             <TableCell align="center">
                               <IconButton
@@ -2396,22 +2784,26 @@ model: '',
                               >
                                 <VisibilityOutlined fontSize="small" />
                               </IconButton>
-                              <IconButton
-                                size="small"
-                                aria-label="Editar equipo"
-                                onClick={() => openEdit(item)}
-                                sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
-                              >
-                                <EditOutlined fontSize="small" />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                aria-label="Eliminar equipo"
-                                onClick={() => openDelete(item)}
-                                sx={{ color: '#64748b', '&:hover': { color: '#b91c1c' } }}
-                              >
-                                <DeleteOutline fontSize="small" />
-                              </IconButton>
+                              {!isReadOnly ? (
+                                <IconButton
+                                  size="small"
+                                  aria-label="Editar equipo"
+                                  onClick={() => openEdit(item)}
+                                  sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                                >
+                                  <EditOutlined fontSize="small" />
+                                </IconButton>
+                              ) : null}
+                              {canDeleteEquipment && !isReadOnly ? (
+                                <IconButton
+                                  size="small"
+                                  aria-label="Eliminar equipo"
+                                  onClick={() => openDelete(item)}
+                                  sx={{ color: '#64748b', '&:hover': { color: '#b91c1c' } }}
+                                >
+                                  <DeleteOutline fontSize="small" />
+                                </IconButton>
+                              ) : null}
                             </TableCell>
                 </TableRow>
               ))}
@@ -3620,8 +4012,10 @@ model: '',
                     <TableRow>
                       <TableCell>Fecha</TableCell>
                       <TableCell>Empresa</TableCell>
+                      <TableCell>No. certificado</TableCell>
                       <TableCell>Certificado</TableCell>
                       <TableCell>Observaciones</TableCell>
+                      {canEditCalibrationDate ? <TableCell /> : null}
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -3641,6 +4035,7 @@ model: '',
                                 : '-'}
                             </TableCell>
                             <TableCell>{companyLabel}</TableCell>
+                            <TableCell>{calibration?.certificate_number || '-'}</TableCell>
                             <TableCell>
                               {calibration?.certificate_pdf_url ? (
                                 <Button
@@ -3657,6 +4052,20 @@ model: '',
                               )}
                             </TableCell>
                             <TableCell>{calibration?.notes || '-'}</TableCell>
+                            {canEditCalibrationDate ? (
+                              <TableCell align="right">
+                                <IconButton
+                                  size="small"
+                                  aria-label="Editar calibracion"
+                                  onClick={() =>
+                                    openCalibrationHistoryEdit(viewEquipment, calibration)
+                                  }
+                                  sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                                >
+                                  <EditOutlined fontSize="small" />
+                                </IconButton>
+                              </TableCell>
+                            ) : null}
                           </TableRow>
                         )
                       })}
@@ -4766,7 +5175,7 @@ model: '',
                 </FormControl>
               )
             })()}
-            {requiresComparisonReadings ? (
+            {(requiresComparisonReadings || isHydrometerMonthlyVerification) ? (
               <Box
                 sx={{
                   border: '1px solid #e5e7eb',
@@ -4779,32 +5188,248 @@ model: '',
                 <Typography variant="subtitle2" color="text.secondary">
                   Comparacion contra patron
                 </Typography>
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="reference-equipment-label">Equipo patron</InputLabel>
-                  <Select
-                    labelId="reference-equipment-label"
-                    label="Equipo patron"
-                    value={verificationForm.reference_equipment_id}
-                    onChange={(event) =>
-                      setVerificationForm((prev) => ({
-                        ...prev,
-                        reference_equipment_id: String(event.target.value || ''),
-                      }))
-                    }
-                  >
-                    {referenceEquipmentOptions.map((candidate) => (
-                      <MenuItem key={candidate.id} value={String(candidate.id)}>
-                        {candidate.serial} - {candidate.brand} {candidate.model}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  {referenceEquipmentOptions.length === 0 ? (
-                    <FormHelperText>
-                      No hay equipos patron disponibles en este terminal.
-                    </FormHelperText>
-                  ) : null}
-                </FormControl>
-                {requiresTapeComparison ? (
+                {isHydrometerMonthlyVerification ? (
+                  <>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' },
+                      }}
+                    >
+                      <FormControl size="small" fullWidth>
+                        <InputLabel id="thermometer-working-label">
+                          Termometro de trabajo
+                        </InputLabel>
+                        <Select
+                          labelId="thermometer-working-label"
+                          label="Termometro de trabajo"
+                          value={verificationForm.thermometer_working_id}
+                          onChange={(event) =>
+                            setVerificationForm((prev) => ({
+                              ...prev,
+                              thermometer_working_id: String(event.target.value || ''),
+                            }))
+                          }
+                        >
+                          {hydrometerThermometerOptions.map((candidate) => (
+                            <MenuItem key={candidate.id} value={String(candidate.id)}>
+                              {candidate.serial} - {candidate.brand} {candidate.model}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                        {hydrometerThermometerOptions.length === 0 ? (
+                          <FormHelperText>
+                            No hay termometros de trabajo disponibles en este terminal.
+                          </FormHelperText>
+                        ) : null}
+                      </FormControl>
+                      <FormControl size="small" fullWidth>
+                        <InputLabel id="thermometer-unit-label">Unidad termometro</InputLabel>
+                        <Select
+                          labelId="thermometer-unit-label"
+                          label="Unidad termometro"
+                          value={verificationForm.thermometer_unit}
+                          onChange={(event) =>
+                            setVerificationForm((prev) => ({
+                              ...prev,
+                              thermometer_unit: String(event.target.value || 'c'),
+                            }))
+                          }
+                        >
+                          <MenuItem value="c">C</MenuItem>
+                          <MenuItem value="f">F</MenuItem>
+                          <MenuItem value="k">K</MenuItem>
+                          <MenuItem value="r">R</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="hydrometer-product-label">Producto</InputLabel>
+                      <Select
+                        labelId="hydrometer-product-label"
+                        label="Producto"
+                        value={verificationForm.product_name}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            product_name: String(event.target.value || 'Crudo'),
+                          }))
+                        }
+                      >
+                        <MenuItem value="Crudo">Crudo</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                      }}
+                    >
+                      <TextField
+                        label="Lectura hidrometro trabajo (API)"
+                        type="number"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={verificationForm.hydrometer_working_value}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            hydrometer_working_value: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Lectura termometro trabajo"
+                        type="number"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={verificationForm.thermometer_working_value}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            thermometer_working_value: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="API a 60F"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={hydrometerWorkApi60f}
+                        InputProps={{ readOnly: true }}
+                        helperText={hydrometerWorkApi60fError || ' '}
+                        error={Boolean(hydrometerWorkApi60fError)}
+                      />
+                    </Box>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="hydrometer-reference-label">
+                        Hidrometro patron
+                      </InputLabel>
+                      <Select
+                        labelId="hydrometer-reference-label"
+                        label="Hidrometro patron"
+                        value={verificationForm.reference_equipment_id}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            reference_equipment_id: String(event.target.value || ''),
+                          }))
+                        }
+                      >
+                        {hydrometerReferenceOptions.map((candidate) => (
+                          <MenuItem key={candidate.id} value={String(candidate.id)}>
+                            {candidate.serial} - {candidate.brand} {candidate.model}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      {hydrometerReferenceOptions.length === 0 ? (
+                        <FormHelperText>
+                          No hay hidrometros patron disponibles en este terminal.
+                        </FormHelperText>
+                      ) : null}
+                    </FormControl>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                      }}
+                    >
+                      <TextField
+                        label="Lectura hidrometro patron (API)"
+                        type="number"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={verificationForm.hydrometer_reference_value}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            hydrometer_reference_value: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Lectura termometro para patron"
+                        type="number"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={verificationForm.thermometer_reference_value}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            thermometer_reference_value: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="API a 60F"
+                        size="small"
+                        sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                        value={hydrometerRefApi60f}
+                        InputProps={{ readOnly: true }}
+                        helperText={hydrometerRefApi60fError || ' '}
+                        error={Boolean(hydrometerRefApi60fError)}
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      {(() => {
+                        const work = Number(hydrometerWorkApi60f)
+                        const ref = Number(hydrometerRefApi60f)
+                        if (Number.isNaN(work) || Number.isNaN(ref)) {
+                          return (
+                            <Typography variant="caption" color="text.secondary">
+                              Diferencia API60F: -
+                            </Typography>
+                          )
+                        }
+                        const diff = work - ref
+                        const ok = diff >= -0.5 && diff <= 0.5
+                        return (
+                          <>
+                            <Typography variant="caption" color="text.secondary">
+                              Diferencia API60F: {diff.toFixed(1)} API
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: ok ? '#16a34a' : '#dc2626', fontWeight: 600 }}
+                            >
+                              {ok ? 'Cumple' : 'No cumple'}
+                            </Typography>
+                          </>
+                        )
+                      })()}
+                    </Box>
+                  </>
+                ) : (
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="reference-equipment-label">Equipo patron</InputLabel>
+                    <Select
+                      labelId="reference-equipment-label"
+                      label="Equipo patron"
+                      value={verificationForm.reference_equipment_id}
+                      onChange={(event) =>
+                        setVerificationForm((prev) => ({
+                          ...prev,
+                          reference_equipment_id: String(event.target.value || ''),
+                        }))
+                      }
+                    >
+                      {referenceEquipmentOptions.map((candidate) => (
+                        <MenuItem key={candidate.id} value={String(candidate.id)}>
+                          {candidate.serial} - {candidate.brand} {candidate.model}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    {referenceEquipmentOptions.length === 0 ? (
+                      <FormHelperText>
+                        No hay equipos patron disponibles en este terminal.
+                      </FormHelperText>
+                    ) : null}
+                  </FormControl>
+                )}
+                {!isHydrometerMonthlyVerification && requiresTapeComparison ? (
                   <>
                     <Box
                       sx={{
@@ -4967,7 +5592,7 @@ model: '',
                       })()}
                     </Box>
                   </>
-                ) : isMonthlyVerification ? (
+                ) : !isHydrometerMonthlyVerification && isMonthlyVerification ? (
                   <>
                     <Box
                       sx={{
@@ -5112,7 +5737,7 @@ model: '',
                       })}
                     </Box>
                   </>
-                ) : (
+                ) : !isHydrometerMonthlyVerification ? (
                   <>
                     <Box sx={{ display: 'grid', gap: 1 }}>
                       <Box
@@ -5243,11 +5868,13 @@ model: '',
                       })()}
                     </Box>
                   </>
-                )}
+                ) : null}
                 <Typography variant="caption" color="text.secondary">
-                  {requiresTapeComparison
-                    ? 'Se requieren inspecciones diarias aprobadas en ambos equipos. Criterio: |Diferencia| < 2 mm.'
-                    : 'Se requiere inspeccion diaria aprobada en ambos equipos y diferencia maxima de 0.5 F.'}
+                  {isHydrometerMonthlyVerification
+                    ? 'Se requiere inspeccion diaria aprobada en ambos equipos.'
+                    : requiresTapeComparison
+                      ? 'Se requieren inspecciones diarias aprobadas en ambos equipos. Criterio: |Diferencia| < 2 mm.'
+                      : 'Se requiere inspeccion diaria aprobada en ambos equipos y diferencia maxima de 0.5 F.'}
                 </Typography>
               </Box>
             ) : null}
@@ -5370,7 +5997,9 @@ model: '',
               disabled={
                 isVerificationLoading ||
                 !verificationForm.verification_type_id ||
-                (verificationItems.length === 0 && !requiresComparisonReadings)
+                (verificationItems.length === 0 &&
+                  !requiresComparisonReadings &&
+                  !isHydrometerMonthlyVerification)
               }
               onClick={async () => {
                 if (!verificationEquipment) return
@@ -5382,7 +6011,74 @@ model: '',
                   })
                   return
                 }
-                if (requiresTemperatureComparison) {
+                let hydrometerTempFWork = null
+                let hydrometerTempFRef = null
+                if (isHydrometerMonthlyVerification) {
+                  const productName = String(verificationForm.product_name || '').trim()
+                  if (!productName) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona el producto.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (!verificationForm.thermometer_working_id) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona el termometro de trabajo.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (!verificationForm.reference_equipment_id) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona el hidrometro patron.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  const requiredFields = [
+                    verificationForm.hydrometer_working_value,
+                    verificationForm.hydrometer_reference_value,
+                    verificationForm.thermometer_working_value,
+                    verificationForm.thermometer_reference_value,
+                  ]
+                  if (requiredFields.some((value) => value === '')) {
+                    setToast({
+                      open: true,
+                      message: 'Completa todas las lecturas del hidrometro y termometro.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (requiredFields.some((value) => Number.isNaN(Number(value)))) {
+                    setToast({
+                      open: true,
+                      message: 'Las lecturas deben ser valores numericos validos.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  const unit = verificationForm.thermometer_unit || 'c'
+                  hydrometerTempFWork = convertTemperatureToFDisplay(
+                    Number(verificationForm.thermometer_working_value),
+                    unit
+                  )
+                  hydrometerTempFRef = convertTemperatureToFDisplay(
+                    Number(verificationForm.thermometer_reference_value),
+                    unit
+                  )
+                  if (hydrometerTempFWork === null || hydrometerTempFRef === null) {
+                    setToast({
+                      open: true,
+                      message: 'No se pudo convertir la temperatura a Fahrenheit.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                } else if (requiresTemperatureComparison) {
                   if (!verificationForm.reference_equipment_id) {
                     setToast({
                       open: true,
@@ -5545,29 +6241,53 @@ model: '',
                   })
                 }
                 setIsVerificationLoading(true)
+                let notes = verificationForm.notes?.trim() || null
+                if (isHydrometerMonthlyVerification) {
+                  const unit = verificationForm.thermometer_unit || 'c'
+                  const productLabel = verificationForm.product_name || 'Crudo'
+                  const thermoId = verificationForm.thermometer_working_id
+                    ? `Termometro trabajo ID: ${verificationForm.thermometer_working_id}`
+                    : 'Termometro trabajo ID: -'
+                  const hydroNote =
+                    `[[HIDROMETRO_DATA]] Hidrometro mensual | Producto: ${productLabel} | ${thermoId} | ` +
+                    `Temp trabajo: ${verificationForm.thermometer_working_value} ${unit} | ` +
+                    `Hidrometro trabajo: ${verificationForm.hydrometer_working_value} API | ` +
+                    `Patron ID: ${verificationForm.reference_equipment_id} | ` +
+                    `Hidrometro patron: ${verificationForm.hydrometer_reference_value} API | ` +
+                    `Temp patron: ${verificationForm.thermometer_reference_value} ${unit}`
+                  notes = notes ? `${notes}\n${hydroNote}` : hydroNote
+                }
                 const payload = {
                   verification_type_id: Number(verificationForm.verification_type_id),
-                  notes: verificationForm.notes?.trim() || null,
+                  notes,
                   verified_at:
                     canEditVerificationDate && verificationForm.verified_at
                       ? verificationForm.verified_at
                       : null,
-                  reference_equipment_id: requiresComparisonReadings
+                  reference_equipment_id: requiresComparisonReadings || isHydrometerMonthlyVerification
                     ? Number(verificationForm.reference_equipment_id)
                     : null,
                   reading_under_test_value:
                     requiresTemperatureComparison && !isMonthlyVerification
                       ? Number(verificationForm.reading_under_test_f)
+                      : isHydrometerMonthlyVerification
+                        ? Number(verificationForm.hydrometer_working_value)
                       : null,
                   reading_under_test_unit: requiresComparisonReadings
                     ? verificationForm.reading_unit_under_test
+                    : isHydrometerMonthlyVerification
+                      ? 'api'
                     : null,
                   reference_reading_value:
                     requiresTemperatureComparison && !isMonthlyVerification
                       ? Number(verificationForm.reference_reading_f)
+                      : isHydrometerMonthlyVerification
+                        ? Number(verificationForm.hydrometer_reference_value)
                       : null,
                   reference_reading_unit: requiresComparisonReadings
                     ? verificationForm.reading_unit_reference
+                    : isHydrometerMonthlyVerification
+                      ? 'api'
                     : null,
                   reading_under_test_high_value:
                     (requiresTemperatureComparison && isMonthlyVerification) || requiresTapeComparison
@@ -5597,6 +6317,12 @@ model: '',
                         ? null
                         : Number(verificationForm.reference_reading_low_value)
                       : null,
+                  reading_under_test_f: isHydrometerMonthlyVerification
+                    ? Number(hydrometerTempFWork)
+                    : null,
+                  reference_reading_f: isHydrometerMonthlyVerification
+                    ? Number(hydrometerTempFRef)
+                    : null,
                   responses,
                 }
                 hideVerificationDialog()
@@ -5763,7 +6489,7 @@ model: '',
               sx={{
                 display: 'grid',
                 gap: 1,
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
               }}
             >
               <FormControl size="small" fullWidth>
@@ -5800,6 +6526,16 @@ model: '',
                   }))
                 }
               />
+              <TextField
+                label="No. certificado"
+                value={calibrationForm.certificate_number}
+                onChange={(event) =>
+                  setCalibrationForm((prev) => ({
+                    ...prev,
+                    certificate_number: event.target.value,
+                  }))
+                }
+              />
             </Box>
             <Box
               sx={{
@@ -5822,7 +6558,7 @@ model: '',
                         point_label: '',
                         reference_value: '',
                         measured_value: '',
-                        unit: '',
+                        unit: isHydrometerEquipment(calibrationEquipment) ? 'api' : '',
                         error_value: '',
                         tolerance_value: '',
                         is_ok: '',
@@ -5981,6 +6717,114 @@ model: '',
                         </Box>
                       )
                     })
+                  ) : isHydrometerEquipment(calibrationEquipment) ? (
+                    calibrationResults.map((row, index) => (
+                      <Box
+                        key={`cal-row-${index}`}
+                        sx={{
+                          display: 'grid',
+                          gap: 1,
+                          gridTemplateColumns: {
+                            xs: '1fr',
+                            md: '1fr 1fr 1fr 1fr 0.7fr 0.6fr auto',
+                          },
+                          alignItems: 'center',
+                        }}
+                      >
+                        <TextField
+                          label="Punto"
+                          size="small"
+                          value={row.point_label}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, point_label: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Lectura patron"
+                          size="small"
+                          type="number"
+                          value={row.reference_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, reference_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Lectura instrumento"
+                          size="small"
+                          type="number"
+                          value={row.measured_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, measured_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Incertidumbre"
+                          size="small"
+                          type="number"
+                          value={row.error_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, error_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="k"
+                          size="small"
+                          type="number"
+                          value={row.tolerance_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, tolerance_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Unidad"
+                          size="small"
+                          value="API"
+                          InputProps={{ readOnly: true }}
+                        />
+                        <IconButton
+                          size="small"
+                          aria-label="Eliminar fila"
+                          onClick={() =>
+                            setCalibrationResults((prev) =>
+                              prev.filter((_, idx) => idx !== index)
+                            )
+                          }
+                          sx={{ color: '#b91c1c' }}
+                        >
+                          <DeleteOutline fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))
                   ) : (
                     calibrationResults.map((row, index) => (
                       <Box
@@ -6148,6 +6992,9 @@ model: '',
                 if (!calibrationEquipment) return
                 const companyId = String(calibrationForm.calibration_company_id || '').trim()
                 const companyName = String(calibrationForm.calibration_company_name || '').trim()
+                const certificateNumber = String(
+                  calibrationForm.certificate_number || ''
+                ).trim()
                 if (!companyId && !companyName) {
                   setToast({
                     open: true,
@@ -6156,6 +7003,15 @@ model: '',
                   })
                   return
                 }
+                if (!certificateNumber) {
+                  setToast({
+                    open: true,
+                    message: 'El numero de certificado es obligatorio.',
+                    severity: 'error',
+                  })
+                  return
+                }
+                const isHydrometer = isHydrometerEquipment(calibrationEquipment)
                 const results = calibrationResults
                   .filter((row) => {
                     const hasValue =
@@ -6180,7 +7036,7 @@ model: '',
                       String(row.measured_value).trim() === ''
                         ? null
                         : Number(row.measured_value),
-                    unit: row.unit?.trim() || null,
+                    unit: isHydrometer ? 'api' : row.unit?.trim() || null,
                     error_value:
                       String(row.error_value).trim() === ''
                         ? null
@@ -6204,6 +7060,7 @@ model: '',
                       : null,
                   calibration_company_id: companyId ? Number(companyId) : null,
                   calibration_company_name: companyName || null,
+                  certificate_number: certificateNumber,
                   notes: calibrationForm.notes?.trim() || null,
                   results,
                 }

@@ -1,7 +1,13 @@
 const formatUserType = (value) => {
   if (!value) return 'N/A'
-  const asText = String(value).replaceAll('_', ' ')
-  return asText.charAt(0).toUpperCase() + asText.slice(1)
+  const normalized = String(value).toLowerCase()
+  const labels = {
+    superadmin: 'Superadmin',
+    admin: 'Admin',
+    user: 'Usuario',
+    visitor: 'Visitante',
+  }
+  return labels[normalized] || normalized.replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase())
 }
 
 export { formatUserType }

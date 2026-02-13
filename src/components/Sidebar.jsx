@@ -16,6 +16,7 @@ import {
   LogoutOutlined,
   PersonOutline,
   PrecisionManufacturingOutlined,
+  ScienceOutlined,
   ViewModuleOutlined,
 } from '@mui/icons-material'
 
@@ -69,6 +70,16 @@ const Sidebar = ({
       />
 
       <Stack className="sidebar__nav" spacing={1}>
+        <Button
+          type="button"
+          className={`sidebar__item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
+          onClick={() => onSectionChange('dashboard')}
+        >
+          <span className="sidebar__icon">
+            <BarChartOutlined fontSize="small" />
+          </span>
+          {!isCollapsed ? <span>Dashboard</span> : null}
+        </Button>
         <Button
           type="button"
           className={`sidebar__item ${activeSection === 'profile' ? 'is-active' : ''}`}
@@ -155,7 +166,21 @@ const Sidebar = ({
           </span>
           {!isCollapsed ? <span>Equipos</span> : null}
         </Button>
-        <Button type="button" className="sidebar__item">
+        <Button
+          type="button"
+          className={`sidebar__item ${activeSection === 'samples' ? 'is-active' : ''}`}
+          onClick={() => onSectionChange('samples')}
+        >
+          <span className="sidebar__icon">
+            <ScienceOutlined fontSize="small" />
+          </span>
+          {!isCollapsed ? <span>Muestras</span> : null}
+        </Button>
+        <Button
+          type="button"
+          className={`sidebar__item ${activeSection === 'reports' ? 'is-active' : ''}`}
+          onClick={() => onSectionChange('reports')}
+        >
           <span className="sidebar__icon">
             <BarChartOutlined fontSize="small" />
           </span>

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStore } from '../store/useAuthStore'
 import Login from '../pages/Login'
-import Dashboard from '../pages/Dashboard'
+import DashBoard from '../pages/Dashboard'
 import PrivateRoute from './PrivateRoute'
 import { fetchCurrentUser } from '../services/api'
 
@@ -65,7 +65,7 @@ const AppRoutes = () => {
             path="/app"
             element={
               <PrivateRoute isAllowed={isLoggedIn}>
-                <Dashboard />
+                <DashBoard />
               </PrivateRoute>
             }
           />
