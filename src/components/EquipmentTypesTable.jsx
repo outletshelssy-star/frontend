@@ -64,6 +64,7 @@ const MEASURE_OPTIONS = [
   { value: 'length', label: 'Longitud' },
   { value: 'weight', label: 'Peso' },
   { value: 'api', label: '°API' },
+  { value: 'percent_pv', label: '% p/v' },
 ]
 
 const EquipmentTypesTable = ({
@@ -74,14 +75,7 @@ const EquipmentTypesTable = ({
   accessToken,
   onEquipmentTypeChanged,
 }) => {
-  const getDefaultVerificationTypes = () => [
-    {
-      name: 'Verificacion diaria',
-      frequency_days: 1,
-      is_active: true,
-      order: 0,
-    },
-  ]
+  const getDefaultVerificationTypes = () => []
 
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -111,11 +105,13 @@ const EquipmentTypesTable = ({
     inspection_days: 0,
     observations: '',
     is_active: true,
+    has_measures: true,
   })
   const [verificationTypesForm, setVerificationTypesForm] = useState(
     getDefaultVerificationTypes()
   )
   const [measures, setMeasures] = useState([])
+  const [measureToAdd, setMeasureToAdd] = useState('')
   const [maxErrors, setMaxErrors] = useState({})
   const [inspectionItemMode, setInspectionItemMode] = useState('create')
   const [editingInspectionItemId, setEditingInspectionItemId] = useState(null)
@@ -220,9 +216,11 @@ const EquipmentTypesTable = ({
       inspection_days: 0,
       observations: '',
       is_active: true,
+      has_measures: true,
     })
     setVerificationTypesForm(getDefaultVerificationTypes())
     setMeasures([])
+    setMeasureToAdd('')
     setMaxErrors({})
     setIsCreateOpen(true)
   }
@@ -241,6 +239,7 @@ const EquipmentTypesTable = ({
       inspection_days: item.inspection_days || 0,
       observations: item.observations || '',
       is_active: Boolean(item.is_active),
+      has_measures: Array.isArray(item.measures) ? item.measures.length > 0 : false,
     })
     const nextMeasures = Array.isArray(item.measures) ? item.measures : []
     const nextMaxErrors = {}
@@ -251,6 +250,7 @@ const EquipmentTypesTable = ({
       }
     })
     setMeasures(nextMeasures)
+    setMeasureToAdd('')
     setMaxErrors(nextMaxErrors)
     setIsEditOpen(true)
     setEditEquipmentType(item)
@@ -369,6 +369,7 @@ const EquipmentTypesTable = ({
   }
 
   const handleMeasuresChange = (value) => {
+    if (!formData.has_measures) return
     const nextMeasures = Array.isArray(value) ? value : []
     setMeasures(nextMeasures)
     setMaxErrors((prev) => {
@@ -693,31 +694,32 @@ const EquipmentTypesTable = ({
     if (!formData.name.trim()) {
       return 'El nombre es obligatorio.'
     }
-    if (!measures.length) {
+    if (formData.has_measures && !measures.length) {
       return 'Selecciona al menos una medida.'
     }
-    if (!verificationTypesForm.length) {
-      return 'Agrega al menos un tipo de verificacion.'
+    if (verificationTypesForm.length) {
+      const invalidVerificationType = verificationTypesForm.find(
+        (typeItem) =>
+          !String(typeItem.name || '').trim() ||
+          typeItem.frequency_days === '' ||
+          typeItem.frequency_days === null ||
+          Number.isNaN(Number(typeItem.frequency_days))
+      )
+      if (invalidVerificationType) {
+        return 'Completa nombre y frecuencia de cada tipo de verificacion.'
+      }
     }
-    const invalidVerificationType = verificationTypesForm.find(
-      (typeItem) =>
-        !String(typeItem.name || '').trim() ||
-        typeItem.frequency_days === '' ||
-        typeItem.frequency_days === null ||
-        Number.isNaN(Number(typeItem.frequency_days))
-    )
-    if (invalidVerificationType) {
-      return 'Completa nombre y frecuencia de cada tipo de verificacion.'
-    }
-    const missing = measures.find(
-      (measure) =>
-        !String(maxErrors[measure]?.unit || '').trim() ||
-        maxErrors[measure]?.max_error_value === '' ||
-        maxErrors[measure]?.max_error_value === null ||
-        Number.isNaN(Number(maxErrors[measure]?.max_error_value))
-    )
-    if (missing) {
-      return 'Completa unidad y valor de error maximo para cada medida.'
+    if (formData.has_measures) {
+      const missing = measures.find(
+        (measure) =>
+          !String(maxErrors[measure]?.unit || '').trim() ||
+          maxErrors[measure]?.max_error_value === '' ||
+          maxErrors[measure]?.max_error_value === null ||
+          Number.isNaN(Number(maxErrors[measure]?.max_error_value))
+      )
+      if (missing) {
+        return 'Completa unidad y valor de error maximo para cada medida.'
+      }
     }
     return ''
   }
@@ -904,7 +906,7 @@ const EquipmentTypesTable = ({
 
   const renderVerificationTypesSummary = (verificationTypes = []) => {
     if (!Array.isArray(verificationTypes) || verificationTypes.length === 0) {
-      return '-'
+      return 'No aplica'
     }
     const summary = verificationTypes
       .filter((item) => item?.is_active !== false)
@@ -915,7 +917,7 @@ const EquipmentTypesTable = ({
         return `${days} ${days === 1 ? 'dia' : 'dias'}`
       })
       .join(', ')
-    return summary || '-'
+    return summary || 'No aplica'
   }
 
   const getUnitOptions = (measure) => {
@@ -946,6 +948,8 @@ const EquipmentTypesTable = ({
         return [{ value: 'pa', label: 'Pa' }]
       case 'api':
         return [{ value: 'api', label: '°API' }]
+      case 'percent_pv':
+        return [{ value: '%p/v', label: '% p/v' }]
       default:
         return []
     }
@@ -963,6 +967,8 @@ const EquipmentTypesTable = ({
         return 'pa'
       case 'api':
         return 'api'
+      case 'percent_pv':
+        return '%p/v'
       default:
         return ''
     }
@@ -1559,100 +1565,160 @@ const EquipmentTypesTable = ({
                       <Typography variant="subtitle2" color="text.secondary">
                         Medidas y tolerancias
                       </Typography>
-                      <FormControl>
-                        <InputLabel id="equipment-measures-label">Medidas</InputLabel>
-                        <Select
-                          labelId="equipment-measures-label"
-                          label="Medidas"
-                          multiple
-                          value={measures}
-                          onChange={(event) => handleMeasuresChange(event.target.value)}
-                          renderValue={(selected) =>
-                            selected
-                              .map(
-                                (value) =>
-                                  MEASURE_OPTIONS.find((option) => option.value === value)?.label ||
-                                  value
-                              )
-                              .join(', ')
-                          }
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={!formData.has_measures}
+                            onChange={(event) => {
+                              const disableMeasures = event.target.checked
+                              setFormData((prev) => ({
+                                ...prev,
+                                has_measures: !disableMeasures,
+                              }))
+                              if (disableMeasures) {
+                                setMeasures([])
+                                setMeasureToAdd('')
+                                setMaxErrors({})
+                              }
+                            }}
+                          />
+                        }
+                        label="Este tipo no requiere medidas (pesas)."
+                      />
+                      <Box
+                        sx={{
+                          display: 'grid',
+                          gap: 2,
+                          gridTemplateColumns: { xs: '1fr', lg: '1fr 2fr' },
+                          alignItems: 'start',
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gap: 1.5,
+                            gridTemplateColumns: { xs: '1fr', sm: '2fr auto' },
+                            alignItems: 'center',
+                          }}
                         >
-                          {MEASURE_OPTIONS.map((measure) => (
-                            <MenuItem key={measure.value} value={measure.value}>
-                              <Checkbox checked={measures.indexOf(measure.value) > -1} />
-                              <ListItemText primary={measure.label} />
-                            </MenuItem>
-                          ))}
-                        </Select>
-                        <FormHelperText>
-                          Si usas presion, el backend puede requerir unidades soportadas.
-                        </FormHelperText>
-                      </FormControl>
-
-                      {measures.length > 0 ? (
-                        <Box sx={{ display: 'grid', gap: 1.5 }}>
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Error maximo por medida
-                          </Typography>
-                          {measures.map((measure) => (
-                            <Box
-                              key={measure}
-                              sx={{
-                                display: 'grid',
-                                gap: 2,
-                                gridTemplateColumns: 'minmax(120px, 2fr) minmax(90px, 1fr) minmax(130px, 1fr)',
-                                alignItems: 'center',
-                              }}
+                          <FormControl>
+                            <InputLabel id="equipment-measures-label">Medidas</InputLabel>
+                            <Select
+                              labelId="equipment-measures-label"
+                              label="Medidas"
+                              value={measureToAdd}
+                              onChange={(event) => setMeasureToAdd(event.target.value)}
+                              disabled={!formData.has_measures}
                             >
-                              <Typography sx={{ fontWeight: 600 }}>
-                                {MEASURE_OPTIONS.find((option) => option.value === measure)?.label ||
-                                  measure}
-                              </Typography>
-                              <TextField
-                                label="Valor"
-                                type="number"
-                                value={maxErrors[measure]?.max_error_value ?? ''}
-                                onChange={(event) =>
-                                  setMaxErrors((prev) => ({
-                                    ...prev,
-                                    [measure]: {
-                                      ...prev[measure],
-                                      max_error_value: event.target.value,
-                                    },
-                                  }))
-                                }
-                              />
-                              <FormControl sx={{ minWidth: 130 }}>
-                                <InputLabel id={`max-error-unit-${measure}`}>Unidad</InputLabel>
-                                <Select
-                                  labelId={`max-error-unit-${measure}`}
-                                  label="Unidad"
-                                  value={maxErrors[measure]?.unit || ''}
+                              {MEASURE_OPTIONS.map((measure) => (
+                                <MenuItem key={measure.value} value={measure.value}>
+                                  {measure.label}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                            <FormHelperText>
+                              Selecciona una medida y agrÃ©gala a la lista.
+                            </FormHelperText>
+                          </FormControl>
+                          <Button
+                            variant="outlined"
+                            onClick={() => {
+                              if (!measureToAdd) return
+                              if (measures.includes(measureToAdd)) return
+                              handleMeasuresChange([...measures, measureToAdd])
+                              setMeasureToAdd('')
+                            }}
+                            disabled={
+                              !formData.has_measures ||
+                              !measureToAdd ||
+                              measures.includes(measureToAdd)
+                            }
+                          >
+                            Agregar medida
+                          </Button>
+                        </Box>
+
+                        {formData.has_measures && measures.length > 0 ? (
+                          <Box sx={{ display: 'grid', gap: 1.5 }}>
+                            <Typography variant="subtitle2" color="text.secondary">
+                              Error maximo por medida
+                            </Typography>
+                            {measures.map((measure) => (
+                              <Box
+                                key={measure}
+                                sx={{
+                                  display: 'grid',
+                                  gap: 2,
+                                  gridTemplateColumns: {
+                                    xs: '1fr',
+                                    sm: 'minmax(120px, 2fr) minmax(90px, 1fr) minmax(130px, 1fr) auto',
+                                  },
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Typography sx={{ fontWeight: 600 }}>
+                                  {MEASURE_OPTIONS.find((option) => option.value === measure)?.label ||
+                                    measure}
+                                </Typography>
+                                <TextField
+                                  label="Valor"
+                                  type="number"
+                                  value={maxErrors[measure]?.max_error_value ?? ''}
                                   onChange={(event) =>
                                     setMaxErrors((prev) => ({
                                       ...prev,
                                       [measure]: {
                                         ...prev[measure],
-                                        unit: event.target.value,
+                                        max_error_value: event.target.value,
                                       },
                                     }))
                                   }
+                                />
+                                <FormControl sx={{ minWidth: 130 }}>
+                                  <InputLabel id={`max-error-unit-${measure}`}>Unidad</InputLabel>
+                                  <Select
+                                    labelId={`max-error-unit-${measure}`}
+                                    label="Unidad"
+                                    value={maxErrors[measure]?.unit || ''}
+                                    onChange={(event) =>
+                                      setMaxErrors((prev) => ({
+                                        ...prev,
+                                        [measure]: {
+                                          ...prev[measure],
+                                          unit: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                  >
+                                    {getUnitOptions(measure).map((option) => (
+                                      <MenuItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                                <Button
+                                  color="error"
+                                  size="small"
+                                  onClick={() =>
+                                    handleMeasuresChange(
+                                      measures.filter((value) => value !== measure)
+                                    )
+                                  }
                                 >
-                                  {getUnitOptions(measure).map((option) => (
-                                    <MenuItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </MenuItem>
-                                  ))}
-                                </Select>
-                              </FormControl>
-                            </Box>
-                          ))}
-                        </Box>
-                      ) : (
-                        <Typography color="text.secondary">
-                          Selecciona medidas para configurar errores maximos.
-                        </Typography>
-                      )}
+                                  Quitar
+                                </Button>
+                              </Box>
+                            ))}
+                          </Box>
+                        ) : (
+                          <Typography color="text.secondary">
+                            {formData.has_measures
+                              ? 'Selecciona medidas para configurar errores maximos.'
+                              : 'No aplica.'}
+                          </Typography>
+                        )}
+                      </Box>
                     </Box>
 
                     <TextField
@@ -1954,6 +2020,26 @@ const EquipmentTypesTable = ({
                       <Typography variant="subtitle2" color="text.secondary">
                         Medidas y tolerancias
                       </Typography>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={!formData.has_measures}
+                            onChange={(event) => {
+                              const disableMeasures = event.target.checked
+                              setFormData((prev) => ({
+                                ...prev,
+                                has_measures: !disableMeasures,
+                              }))
+                              if (disableMeasures) {
+                                setMeasures([])
+                                setMeasureToAdd('')
+                                setMaxErrors({})
+                              }
+                            }}
+                          />
+                        }
+                        label="Este tipo no requiere medidas (pesas)."
+                      />
                       <Box
                         sx={{
                           display: 'grid',
@@ -1970,6 +2056,7 @@ const EquipmentTypesTable = ({
                             multiple
                             value={measures}
                             onChange={(event) => handleMeasuresChange(event.target.value)}
+                            disabled={!formData.has_measures}
                             renderValue={(selected) =>
                               selected
                                 .map(
@@ -1989,7 +2076,7 @@ const EquipmentTypesTable = ({
                           </Select>
                         </FormControl>
 
-                        {measures.length > 0 ? (
+                        {formData.has_measures && measures.length > 0 ? (
                           <Box sx={{ display: 'grid', gap: 1.5 }}>
                             <Typography
                               variant="subtitle2"
@@ -2054,7 +2141,9 @@ const EquipmentTypesTable = ({
                           </Box>
                         ) : (
                           <Typography color="text.secondary">
-                            Selecciona medidas para configurar errores maximos.
+                            {formData.has_measures
+                              ? 'Selecciona medidas para configurar errores maximos.'
+                              : 'No aplica.'}
                           </Typography>
                         )}
                       </Box>

@@ -32,12 +32,20 @@ import {
   Typography,
   CircularProgress,
   IconButton,
+  Checkbox,
+  ListItemText,
+  FormHelperText,
+  FormControlLabel,
 } from '@mui/material'
 import {
   createCompanyTerminal,
   deleteCompanyTerminal,
   fetchCompanyTerminalById,
   updateCompanyTerminal,
+  fetchExternalAnalysisTypes,
+  fetchExternalAnalysesByTerminal,
+  upsertExternalAnalysisTerminal,
+  createExternalAnalysisRecord,
 } from '../services/api'
 
 const CompanyTerminalsTable = ({
@@ -59,6 +67,7 @@ const CompanyTerminalsTable = ({
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const isFormOpen = isCreateOpen || isEditOpen
   const [isViewOpen, setIsViewOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -66,6 +75,17 @@ const CompanyTerminalsTable = ({
   const [isUpdateLoading, setIsUpdateLoading] = useState(false)
   const [terminalId, setTerminalId] = useState(null)
   const [viewTerminal, setViewTerminal] = useState(null)
+  const [analysisTypes, setAnalysisTypes] = useState([])
+  const [terminalAnalyses, setTerminalAnalyses] = useState([])
+  const [analysisForm, setAnalysisForm] = useState({
+    analysis_type_id: '',
+    performed_at: '',
+    notes: '',
+  })
+  const [selectedAnalysisIds, setSelectedAnalysisIds] = useState([])
+  const [isAnalysesLoading, setIsAnalysesLoading] = useState(false)
+  const [isAnalysisSaving, setIsAnalysisSaving] = useState(false)
+  const [isAnalysisRecordSaving, setIsAnalysisRecordSaving] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     block_id: '',
@@ -161,7 +181,7 @@ const CompanyTerminalsTable = ({
     setSortDir('asc')
   }
 
-  const openCreate = () => {
+  const openCreate = async () => {
     setFormData({
       name: '',
       block_id: blocks?.[0]?.id || '',
@@ -170,6 +190,23 @@ const CompanyTerminalsTable = ({
       terminal_code: '',
       is_active: true,
     })
+    setSelectedAnalysisIds([])
+    if (analysisTypes.length === 0) {
+      try {
+        setIsAnalysesLoading(true)
+        const data = await fetchExternalAnalysisTypes({ tokenType, accessToken })
+        const types = Array.isArray(data?.items) ? data.items : []
+        setAnalysisTypes(types)
+      } catch (err) {
+        setToast({
+          open: true,
+          message: err?.detail || 'No se pudieron cargar los analisis externos.',
+          severity: 'error',
+        })
+      } finally {
+        setIsAnalysesLoading(false)
+      }
+    }
     setIsCreateOpen(true)
   }
 
@@ -177,7 +214,7 @@ const CompanyTerminalsTable = ({
     setIsCreateOpen(false)
   }
 
-  const openEdit = (terminal) => {
+  const openEdit = async (terminal) => {
     setTerminalId(terminal.id)
     setFormData({
       name: terminal.name || '',
@@ -187,10 +224,45 @@ const CompanyTerminalsTable = ({
       terminal_code: terminal.terminal_code || '',
       is_active: Boolean(terminal.is_active),
     })
+    try {
+      setIsAnalysesLoading(true)
+      const [typesData, analysesData] = await Promise.all([
+        fetchExternalAnalysisTypes({ tokenType, accessToken }),
+        fetchExternalAnalysesByTerminal({
+          tokenType,
+          accessToken,
+          terminalId: terminal.id,
+        }),
+      ])
+      const types = Array.isArray(typesData?.items) ? typesData.items : []
+      const analyses = Array.isArray(analysesData?.items)
+        ? analysesData.items.map((item) => ({ ...item }))
+        : []
+      setAnalysisTypes(types)
+      setTerminalAnalyses(analyses)
+      const activeIds = analyses
+        .filter((item) => item.is_active !== false)
+        .map((item) => String(item.analysis_type_id))
+      setSelectedAnalysisIds(activeIds)
+    } catch (err) {
+      setToast({
+        open: true,
+        message: err?.detail || 'No se pudieron cargar los analisis externos.',
+        severity: 'error',
+      })
+    } finally {
+      setIsAnalysesLoading(false)
+    }
     setIsEditOpen(true)
   }
 
   const closeEdit = () => {
+    setIsEditOpen(false)
+    setTerminalId(null)
+  }
+
+  const closeForm = () => {
+    setIsCreateOpen(false)
     setIsEditOpen(false)
     setTerminalId(null)
   }
@@ -206,18 +278,48 @@ const CompanyTerminalsTable = ({
         ownerCompanyId: terminal.owner_company_id,
       })
       setViewTerminal(data)
+      setIsAnalysesLoading(true)
+      const [typesData, analysesData] = await Promise.all([
+        fetchExternalAnalysisTypes({ tokenType, accessToken }),
+        fetchExternalAnalysesByTerminal({
+          tokenType,
+          accessToken,
+          terminalId: terminal.id,
+        }),
+      ])
+      const types = Array.isArray(typesData?.items) ? typesData.items : []
+      const analyses = Array.isArray(analysesData?.items)
+        ? analysesData.items.map((item) => ({
+            ...item,
+          }))
+        : []
+      setAnalysisTypes(types)
+      setTerminalAnalyses(analyses)
+      setAnalysisForm((prev) => ({
+        ...prev,
+        analysis_type_id: String(types?.[0]?.id || ''),
+      }))
     } catch (err) {
       setToast({
         open: true,
         message: err?.detail || 'No se pudo cargar el detalle del terminal.',
         severity: 'error',
       })
+    } finally {
+      setIsAnalysesLoading(false)
     }
   }
 
   const closeView = () => {
     setIsViewOpen(false)
     setViewTerminal(null)
+    setTerminalAnalyses([])
+    setAnalysisTypes([])
+      setAnalysisForm({
+        analysis_type_id: '',
+        performed_at: '',
+        notes: '',
+      })
   }
 
   const openDelete = (terminal) => {
@@ -230,6 +332,107 @@ const CompanyTerminalsTable = ({
     setIsDeleteOpen(false)
     setTerminalId(null)
     setViewTerminal(null)
+  }
+
+  const handleAnalysisActiveChange = (analysisTypeId, value) => {
+    setTerminalAnalyses((prev) =>
+      prev.map((item) =>
+        item.analysis_type_id === analysisTypeId
+          ? { ...item, is_active: value }
+          : item
+      )
+    )
+  }
+
+  const handleSaveAnalysisConfig = async (analysis) => {
+    if (!viewTerminal) return
+    setIsAnalysisSaving(true)
+    try {
+      const updated = await upsertExternalAnalysisTerminal({
+        tokenType,
+        accessToken,
+        terminalId: viewTerminal.id,
+        payload: {
+          analysis_type_id: analysis.analysis_type_id,
+          frequency_days: analysis.frequency_days ?? 0,
+          is_active: analysis.is_active !== false,
+        },
+      })
+      setTerminalAnalyses((prev) =>
+        prev.map((item) =>
+          item.analysis_type_id === updated.analysis_type_id
+            ? { ...item, ...updated }
+            : item
+        )
+      )
+      setToast({
+        open: true,
+        message: 'Frecuencia actualizada.',
+        severity: 'success',
+      })
+    } catch (err) {
+      setToast({
+        open: true,
+        message: err?.detail || 'No se pudo actualizar la frecuencia.',
+        severity: 'error',
+      })
+    } finally {
+      setIsAnalysisSaving(false)
+    }
+  }
+
+  const handleCreateAnalysisRecord = async () => {
+    if (!viewTerminal) return
+    if (!analysisForm.analysis_type_id) {
+      setToast({
+        open: true,
+        message: 'Selecciona un analisis.',
+        severity: 'error',
+      })
+      return
+    }
+    setIsAnalysisRecordSaving(true)
+    try {
+      await createExternalAnalysisRecord({
+        tokenType,
+        accessToken,
+        terminalId: viewTerminal.id,
+        payload: {
+          analysis_type_id: Number(analysisForm.analysis_type_id),
+          performed_at: analysisForm.performed_at || null,
+          notes: analysisForm.notes?.trim() || null,
+        },
+      })
+      const analysesData = await fetchExternalAnalysesByTerminal({
+        tokenType,
+        accessToken,
+        terminalId: viewTerminal.id,
+      })
+      const analyses = Array.isArray(analysesData?.items)
+        ? analysesData.items.map((item) => ({
+            ...item,
+          }))
+        : []
+      setTerminalAnalyses(analyses)
+      setAnalysisForm((prev) => ({
+        ...prev,
+        performed_at: '',
+        notes: '',
+      }))
+      setToast({
+        open: true,
+        message: 'Analisis registrado.',
+        severity: 'success',
+      })
+    } catch (err) {
+      setToast({
+        open: true,
+        message: err?.detail || 'No se pudo registrar el analisis.',
+        severity: 'error',
+      })
+    } finally {
+      setIsAnalysisRecordSaving(false)
+    }
   }
 
   const handleCreate = async () => {
@@ -260,7 +463,7 @@ const CompanyTerminalsTable = ({
     setIsCreateLoading(true)
     closeCreate()
     try {
-      await createCompanyTerminal({
+      const created = await createCompanyTerminal({
         tokenType,
         accessToken,
         payload: {
@@ -272,6 +475,22 @@ const CompanyTerminalsTable = ({
           is_active: formData.is_active,
         },
       })
+      if (created?.id && selectedAnalysisIds.length > 0) {
+        await Promise.all(
+          selectedAnalysisIds.map((analysisId) =>
+            upsertExternalAnalysisTerminal({
+              tokenType,
+              accessToken,
+              terminalId: created.id,
+              payload: {
+                analysis_type_id: Number(analysisId),
+                frequency_days: 0,
+                is_active: true,
+              },
+            })
+          )
+        )
+      }
       if (onTerminalChanged) {
         await onTerminalChanged()
       }
@@ -333,6 +552,25 @@ const CompanyTerminalsTable = ({
           is_active: formData.is_active,
         },
       })
+      if (analysisTypes.length > 0) {
+        await Promise.all(
+          analysisTypes.map((analysis) => {
+            const current = terminalAnalyses.find(
+              (item) => item.analysis_type_id === analysis.id
+            )
+            return upsertExternalAnalysisTerminal({
+              tokenType,
+              accessToken,
+              terminalId,
+              payload: {
+                analysis_type_id: Number(analysis.id),
+                frequency_days: current?.frequency_days ?? 0,
+                is_active: selectedAnalysisIds.includes(String(analysis.id)),
+              },
+            })
+          })
+        )
+      }
       if (onTerminalChanged) {
         await onTerminalChanged()
       }
@@ -400,6 +638,13 @@ const CompanyTerminalsTable = ({
         {isActive ? 'Activo' : 'Inactivo'}
       </Box>
     )
+  }
+
+  const formatDate = (value) => {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    return date.toLocaleDateString()
   }
 
   return (
@@ -683,8 +928,8 @@ const CompanyTerminalsTable = ({
           </Box>
         </Box>
       ) : null}
-      <Dialog open={isCreateOpen} onClose={closeCreate} fullWidth maxWidth="sm">
-        <DialogTitle>Nuevo terminal</DialogTitle>
+      <Dialog open={isFormOpen} onClose={closeForm} fullWidth maxWidth="sm">
+        <DialogTitle>{isEditOpen ? 'Editar terminal' : 'Nuevo terminal'}</DialogTitle>
         <DialogContent
           sx={{
             display: 'grid',
@@ -703,214 +948,174 @@ const CompanyTerminalsTable = ({
             },
           }}
         >
-          <TextField
-            label="Nombre"
-            value={formData.name}
-            onChange={(event) =>
-              setFormData((prev) => ({ ...prev, name: event.target.value }))
-            }
-            required
-          />
-          <TextField
-            label="Codigo del terminal"
-            placeholder="Ej: ABC"
-            value={formData.terminal_code}
-            required
-            onChange={(event) =>
-              setFormData((prev) => ({
-                ...prev,
-                terminal_code: event.target.value,
-              }))
-            }
-          />
-          <FormControl>
-            <InputLabel id="terminal-block-label">Bloque</InputLabel>
-            <Select
-              labelId="terminal-block-label"
-              label="Bloque"
-              value={formData.block_id}
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+            }}
+          >
+            <TextField
+              label="Nombre"
+              value={formData.name}
               onChange={(event) =>
-                setFormData((prev) => ({ ...prev, block_id: event.target.value }))
+                setFormData((prev) => ({ ...prev, name: event.target.value }))
               }
-            >
-              {blocks.map((block) => (
-                <MenuItem key={block.id} value={block.id}>
-                  {block.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel id="terminal-owner-label">Empresa Propietaria</InputLabel>
-            <Select
-              labelId="terminal-owner-label"
-              label="Empresa Propietaria"
-              value={formData.owner_company_id}
+              required
+              sx={{ gridColumn: { xs: '1 / span 1', sm: '1 / span 2' } }}
+            />
+            <TextField
+              label="Codigo del terminal"
+              placeholder="Ej: ABC"
+              value={formData.terminal_code}
+              required
               onChange={(event) =>
                 setFormData((prev) => ({
                   ...prev,
-                  owner_company_id: event.target.value,
+                  terminal_code: event.target.value,
                 }))
               }
-            >
-              {companies.map((company) => (
-                <MenuItem key={company.id} value={company.id}>
-                  {company.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+            />
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+            }}
+          >
+            <FormControl>
+              <InputLabel id="terminal-block-label">Bloque</InputLabel>
+              <Select
+                labelId="terminal-block-label"
+                label="Bloque"
+                value={formData.block_id}
+                onChange={(event) =>
+                  setFormData((prev) => ({ ...prev, block_id: event.target.value }))
+                }
+              >
+                {blocks.map((block) => (
+                  <MenuItem key={block.id} value={block.id}>
+                    {block.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl>
+              <InputLabel id="terminal-owner-label">Empresa Propietaria</InputLabel>
+              <Select
+                labelId="terminal-owner-label"
+                label="Empresa Propietaria"
+                value={formData.owner_company_id}
+                onChange={(event) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    owner_company_id: event.target.value,
+                  }))
+                }
+              >
+                {companies.map((company) => (
+                  <MenuItem key={company.id} value={company.id}>
+                    {company.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl>
+              <InputLabel id="terminal-admin-label">Empresa admin</InputLabel>
+              <Select
+                labelId="terminal-admin-label"
+                label="Empresa admin"
+                value={formData.admin_company_id}
+                onChange={(event) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    admin_company_id: event.target.value,
+                  }))
+                }
+              >
+                {companies.map((company) => (
+                  <MenuItem key={company.id} value={company.id}>
+                    {company.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
           <FormControl>
-            <InputLabel id="terminal-admin-label">Empresa admin</InputLabel>
-            <Select
-              labelId="terminal-admin-label"
-              label="Empresa admin"
-              value={formData.admin_company_id}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  admin_company_id: event.target.value,
-                }))
-              }
-            >
-              {companies.map((company) => (
-                <MenuItem key={company.id} value={company.id}>
-                  {company.name}
-                </MenuItem>
-              ))}
-            </Select>
+            <Typography variant="subtitle2" color="text.secondary">
+              Analisis externos
+            </Typography>
+            {analysisTypes.length === 0 ? (
+              <FormHelperText>
+                {isAnalysesLoading
+                  ? 'Cargando analisis...'
+                  : 'No hay analisis externos disponibles.'}
+              </FormHelperText>
+            ) : (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 0.5,
+                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                }}
+              >
+                {analysisTypes.map((item) => {
+                  const value = String(item.id)
+                  const checked = selectedAnalysisIds.includes(value)
+                  return (
+                    <FormControlLabel
+                      key={item.id}
+                      control={
+                        <Checkbox
+                          checked={checked}
+                          onChange={(event) =>
+                            setSelectedAnalysisIds((prev) =>
+                              event.target.checked
+                                ? [...prev, value]
+                                : prev.filter((id) => id !== value)
+                            )
+                          }
+                        />
+                      }
+                      label={item.name}
+                    />
+                  )
+                })}
+              </Box>
+            )}
           </FormControl>
+          {isEditOpen ? (
+            <FormControl>
+              <InputLabel id="terminal-status-edit">Estado</InputLabel>
+              <Select
+                labelId="terminal-status-edit"
+                label="Estado"
+                value={formData.is_active ? 'active' : 'inactive'}
+                onChange={(event) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    is_active: event.target.value === 'active',
+                  }))
+                }
+              >
+                <MenuItem value="active">Activo</MenuItem>
+                <MenuItem value="inactive">Inactivo</MenuItem>
+              </Select>
+            </FormControl>
+          ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeCreate}>Cancelar</Button>
-          <Button variant="contained" onClick={handleCreate}>
-            Guardar
+          <Button onClick={closeForm}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={isEditOpen ? handleUpdate : handleCreate}
+          >
+            {isEditOpen ? 'Guardar cambios' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={isEditOpen} onClose={closeEdit} fullWidth maxWidth="sm">
-        <DialogTitle>Editar terminal</DialogTitle>
-        <DialogContent
-          sx={{
-            display: 'grid',
-            gap: 2,
-            pt: 1,
-            overflow: 'visible',
-            '& .MuiFormControl-root': {
-              overflow: 'visible',
-            },
-            '& .MuiInputLabel-root': {
-              backgroundColor: '#ffffff',
-              padding: '0 4px',
-            },
-            '& .MuiInputLabel-shrink': {
-              top: 0,
-            },
-          }}
-        >
-          <TextField
-            label="Nombre"
-            value={formData.name}
-            onChange={(event) =>
-              setFormData((prev) => ({ ...prev, name: event.target.value }))
-            }
-            required
-          />
-          <TextField
-            label="Codigo del terminal"
-            placeholder="Ej: ABC"
-            value={formData.terminal_code}
-            required
-            onChange={(event) =>
-              setFormData((prev) => ({
-                ...prev,
-                terminal_code: event.target.value,
-              }))
-            }
-          />
-          <FormControl>
-            <InputLabel id="terminal-block-edit">Bloque</InputLabel>
-            <Select
-              labelId="terminal-block-edit"
-              label="Bloque"
-              value={formData.block_id}
-              onChange={(event) =>
-                setFormData((prev) => ({ ...prev, block_id: event.target.value }))
-              }
-            >
-              {blocks.map((block) => (
-                <MenuItem key={block.id} value={block.id}>
-                  {block.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel id="terminal-owner-edit">Empresa Propietaria</InputLabel>
-            <Select
-              labelId="terminal-owner-edit"
-              label="Empresa Propietaria"
-              value={formData.owner_company_id}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  owner_company_id: event.target.value,
-                }))
-              }
-            >
-              {companies.map((company) => (
-                <MenuItem key={company.id} value={company.id}>
-                  {company.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel id="terminal-admin-edit">Empresa admin</InputLabel>
-            <Select
-              labelId="terminal-admin-edit"
-              label="Empresa admin"
-              value={formData.admin_company_id}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  admin_company_id: event.target.value,
-                }))
-              }
-            >
-              {companies.map((company) => (
-                <MenuItem key={company.id} value={company.id}>
-                  {company.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel id="terminal-status-edit">Estado</InputLabel>
-            <Select
-              labelId="terminal-status-edit"
-              label="Estado"
-              value={formData.is_active ? 'active' : 'inactive'}
-              onChange={(event) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  is_active: event.target.value === 'active',
-                }))
-              }
-            >
-              <MenuItem value="active">Activo</MenuItem>
-              <MenuItem value="inactive">Inactivo</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeEdit}>Cancelar</Button>
-          <Button variant="contained" onClick={handleUpdate}>
-            Guardar cambios
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={isViewOpen} onClose={closeView} fullWidth maxWidth="xs">
+      <Dialog open={isViewOpen} onClose={closeView} fullWidth maxWidth="md">
         <DialogTitle>Detalle de terminal</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5, pt: 1 }}>
           <Typography variant="subtitle2" color="text.secondary">
@@ -939,6 +1144,52 @@ const CompanyTerminalsTable = ({
           {viewTerminal?.is_active === undefined
             ? '-'
             : renderStatusBadge(viewTerminal.is_active)}
+          <Box sx={{ borderTop: '1px solid #e5e7eb', pt: 1.5, mt: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Analisis externos
+            </Typography>
+            {isAnalysesLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={20} />
+                <Typography color="text.secondary">Cargando analisis...</Typography>
+              </Box>
+            ) : (
+              <>
+                {terminalAnalyses.length === 0 ? (
+                  <Typography color="text.secondary">Sin analisis configurados.</Typography>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Analisis</TableCell>
+                          <TableCell>Frecuencia (dias)</TableCell>
+                          <TableCell>Ultimo</TableCell>
+                          <TableCell>Proximo</TableCell>
+                          <TableCell>Estado</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {terminalAnalyses.map((analysis) => (
+                          <TableRow key={analysis.analysis_type_id}>
+                            <TableCell>{analysis.analysis_type_name}</TableCell>
+                            <TableCell>
+                              {analysis.frequency_days ?? '-'}
+                            </TableCell>
+                            <TableCell>{formatDate(analysis.last_performed_at)}</TableCell>
+                            <TableCell>{formatDate(analysis.next_due_at)}</TableCell>
+                            <TableCell>
+                              {analysis.is_active ? 'Activo' : 'Inactivo'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeView}>Cerrar</Button>

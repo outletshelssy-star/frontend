@@ -14,6 +14,7 @@ const Login = () => {
     setIsLoading,
     setTokenType,
     setAccessToken,
+    setRefreshToken,
   } = useAuthStore()
 
   const handleSubmit = async (event) => {
@@ -31,6 +32,7 @@ const Login = () => {
       const data = await login({ username, password })
       setTokenType(data.token_type || 'bearer')
       setAccessToken(data.access_token || '')
+      setRefreshToken(data.refresh_token || '')
       setIsLoggedIn(true)
     } catch (err) {
       setError(err?.detail || 'No se pudo iniciar sesion.')

@@ -9,6 +9,7 @@ const initialAuthState = {
   isLoading: false,
   tokenType: '',
   accessToken: '',
+  refreshToken: '',
   currentUser: null,
   currentUserError: '',
 }
@@ -24,6 +25,7 @@ const useAuthStore = create(
       setIsLoading: (isLoading) => set({ isLoading }),
       setTokenType: (tokenType) => set({ tokenType }),
       setAccessToken: (accessToken) => set({ accessToken }),
+      setRefreshToken: (refreshToken) => set({ refreshToken }),
       setCurrentUser: (currentUser) => set({ currentUser }),
       setCurrentUserError: (currentUserError) => set({ currentUserError }),
       resetAuth: () => set({ ...initialAuthState }),
@@ -34,6 +36,7 @@ const useAuthStore = create(
         isLoggedIn: state.isLoggedIn,
         tokenType: state.tokenType,
         accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
         currentUser: state.currentUser,
       }),
     }

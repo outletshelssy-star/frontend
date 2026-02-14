@@ -25,6 +25,7 @@ import CompanyTerminalsTable from '../components/CompanyTerminalsTable'
 import EquipmentTypesTable from '../components/EquipmentTypesTable'
 import EquipmentsTable from '../components/EquipmentsTable'
 import SamplesTable from '../components/SamplesTable'
+import ExternalAnalysesTable from '../components/ExternalAnalysesTable'
 
 const DashBoard = () => {
   const {
@@ -221,6 +222,9 @@ const DashBoard = () => {
         loadTerminals()
         loadEquipments()
         break
+      case 'external-analyses':
+        loadTerminals()
+        break
       case 'profile':
       default:
         break
@@ -350,6 +354,14 @@ const DashBoard = () => {
             terminals={terminals}
             equipments={equipments}
             currentUser={currentUser}
+            tokenType={tokenType}
+            accessToken={accessToken}
+          />
+        )
+      case 'external-analyses':
+        return (
+          <ExternalAnalysesTable
+            terminals={terminals}
             tokenType={tokenType}
             accessToken={accessToken}
           />

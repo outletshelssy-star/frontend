@@ -18,6 +18,7 @@ import {
   PrecisionManufacturingOutlined,
   ScienceOutlined,
   ViewModuleOutlined,
+  FactCheckOutlined,
 } from '@mui/icons-material'
 
 const Sidebar = ({
@@ -175,6 +176,18 @@ const Sidebar = ({
             <ScienceOutlined fontSize="small" />
           </span>
           {!isCollapsed ? <span>Muestras</span> : null}
+        </Button>
+        <Button
+          type="button"
+          className={`sidebar__item ${
+            activeSection === 'external-analyses' ? 'is-active' : ''
+          }`}
+          onClick={() => onSectionChange('external-analyses')}
+        >
+          <span className="sidebar__icon">
+            <FactCheckOutlined fontSize="small" />
+          </span>
+          {!isCollapsed ? <span>Analisis externos</span> : null}
         </Button>
         <Button
           type="button"

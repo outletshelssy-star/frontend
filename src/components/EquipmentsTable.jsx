@@ -57,7 +57,9 @@ import {
   deleteEquipment,
   fetchEquipmentInspections,
   fetchEquipmentById,
+  fetchEquipmentHistory,
   fetchEquipmentTypeInspectionItems,
+  fetchUsers,
   fetchEquipmentTypeVerifications,
   fetchEquipmentTypeVerificationItems,
   uploadEquipmentCalibrationCertificate,
@@ -80,6 +82,18 @@ const STATUS_OPTIONS = [
 const EQUIPMENT_ROLE_LABELS = {
   reference: 'Patron',
   working: 'Trabajo',
+}
+const WEIGHT_CLASS_OPTIONS = ['E1', 'E2', 'F1', 'F2', 'M1', 'M2', 'M3']
+const WEIGHT_NOMINAL_G_OPTIONS = [200, 100, 50, 20, 10, 5, 2, 1]
+const WEIGHT_EMP_TABLE_MG = {
+  200: { E1: 0.1, E2: 0.3, F1: 1.0, F2: 3.0, M1: 10.0, M2: 30.0, M3: 100.0 },
+  100: { E1: 0.05, E2: 0.16, F1: 0.5, F2: 1.6, M1: 5.0, M2: 16.0, M3: 50.0 },
+  50: { E1: 0.03, E2: 0.1, F1: 0.3, F2: 1.0, M1: 3.0, M2: 10.0, M3: 30.0 },
+  20: { E1: 0.03, E2: 0.08, F1: 0.25, F2: 0.8, M1: 2.5, M2: 8.0, M3: 25.0 },
+  10: { E1: 0.02, E2: 0.06, F1: 0.2, F2: 0.6, M1: 2.0, M2: 6.0, M3: 20.0 },
+  5: { E1: 0.02, E2: 0.05, F1: 0.16, F2: 0.5, M1: 1.6, M2: 5.0, M3: 16.0 },
+  2: { E1: 0.01, E2: 0.04, F1: 0.12, F2: 0.4, M1: 1.2, M2: 4.0, M3: 12.0 },
+  1: { E1: 0.01, E2: 0.03, F1: 0.1, F2: 0.3, M1: 1.0, M2: 3.0, M3: 10.0 },
 }
 
 const parseComponentSerialsInput = (rawValue) => {
@@ -171,6 +185,10 @@ const EquipmentsTable = ({
   const [isDeleteLoading, setIsDeleteLoading] = useState(false)
   const [viewEquipment, setViewEquipment] = useState(null)
   const [editingEquipmentId, setEditingEquipmentId] = useState(null)
+  const [equipmentHistoryItems, setEquipmentHistoryItems] = useState([])
+  const [isEquipmentHistoryLoading, setIsEquipmentHistoryLoading] = useState(false)
+  const [equipmentHistoryError, setEquipmentHistoryError] = useState('')
+  const [userNameById, setUserNameById] = useState({})
   const [inspectionEquipment, setInspectionEquipment] = useState(null)
   const [inspectionItems, setInspectionItems] = useState([])
   const [inspectionEditMode, setInspectionEditMode] = useState(false)
@@ -195,6 +213,10 @@ const EquipmentsTable = ({
     notes: '',
     verified_at: '',
     reference_equipment_id: '',
+    kf_weight_1: '',
+    kf_volume_1: '',
+    kf_weight_2: '',
+    kf_volume_2: '',
     product_name: 'Crudo',
     thermometer_working_id: '',
     hydrometer_working_value: '',
@@ -204,6 +226,8 @@ const EquipmentsTable = ({
     thermometer_unit: 'c',
     reading_under_test_f: '',
     reference_reading_f: '',
+    balance_reading_value: '',
+    balance_unit: 'g',
     reading_under_test_high_value: '',
     reading_under_test_mid_value: '',
     reading_under_test_low_value: '',
@@ -225,14 +249,17 @@ const EquipmentsTable = ({
   const [formData, setFormData] = useState({
     internal_code: '',
     serial: '',
-component_serials_text: '',
-model: '',
+    component_serials_text: '',
+    model: '',
     brand: '',
     status: 'in_use',
     is_active: true,
     equipment_type_id: '',
     owner_company_id: '',
     terminal_id: '',
+    weight_class: '',
+    nominal_mass_value: '',
+    nominal_mass_unit: '',
   })
   const [measureSpecs, setMeasureSpecs] = useState({})
   const [toast, setToast] = useState({
@@ -301,6 +328,7 @@ model: '',
       return
     }
     const isTape = isTapeEquipment(viewEquipment)
+    const isBalance = isBalanceEquipment(viewEquipment)
     const limit = isTape ? 2 : 0.5
     const isMonthlyHistory = isMonthlyVerificationType(
       viewEquipment,
@@ -309,9 +337,14 @@ model: '',
     const points = buildControlChartPointsFromVerifications(
       getFilteredVerifications(viewEquipment),
       isMonthlyHistory,
-      isTape
+      isTape,
+      isBalance
     )
     const count = points.filter((p) => {
+      if (isBalance) {
+        if (p.emp == null || p.diffG == null) return false
+        return p.diffG > p.emp || p.diffG < -p.emp
+      }
       if (isMonthlyHistory) {
         return (
           p.diffHighF > limit ||
@@ -372,8 +405,23 @@ model: '',
         typeName === 'cinta metrica plomada vacio')
     )
   }, [verificationEquipment])
+  const requiresBalanceComparison = useMemo(() => {
+    const typeName = String(verificationEquipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase()
+    const roleType = String(verificationEquipment?.equipment_type?.role || '')
+      .trim()
+      .toLowerCase()
+    return roleType === 'working' && typeName === 'balanza analitica'
+  }, [verificationEquipment])
+  const requiresKarlFischerVerification = useMemo(() => {
+    const typeName = String(verificationEquipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase()
+    return typeName === 'titulador karl fischer'
+  }, [verificationEquipment])
   const requiresComparisonReadings =
-    requiresTemperatureComparison || requiresTapeComparison
+    requiresTemperatureComparison || requiresTapeComparison || requiresBalanceComparison
 
   const isTapeEquipment = (equipment) => {
     const typeName = String(equipment?.equipment_type?.name || '')
@@ -400,11 +448,32 @@ model: '',
     )
   }
 
+  const isBalanceEquipment = (equipment) => {
+    const equipmentType =
+      equipment?.equipment_type ||
+      (equipment?.equipment_type_id
+        ? (equipmentTypes || []).find(
+            (type) => type.id === equipment.equipment_type_id
+          )
+        : null)
+    const typeName = String(equipmentType?.name || '')
+      .trim()
+      .toLowerCase()
+    return typeName === 'balanza analitica'
+  }
+
   const isHydrometerEquipment = (equipment) => {
     const typeName = String(equipment?.equipment_type?.name || '')
       .trim()
       .toLowerCase()
     return typeName === 'hidrometro'
+  }
+
+  const isKarlFischerEquipment = (equipment) => {
+    const typeName = String(equipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase()
+    return typeName === 'titulador karl fischer'
   }
 
   const formatTapeReadingsLabel = (values = [], unit) => {
@@ -591,6 +660,7 @@ model: '',
   const referenceEquipmentOptions = useMemo(() => {
     if (!requiresComparisonReadings || !verificationEquipment) return []
     const isTape = requiresTapeComparison
+    const isBalance = requiresBalanceComparison
     return (equipments || []).filter((item) => {
       if (!item?.id || item.id === verificationEquipment.id) return false
       if (item.terminal_id !== verificationEquipment.terminal_id) return false
@@ -598,16 +668,53 @@ model: '',
       if (item.status !== 'in_use') return false
       const candidateRole = String(item?.equipment_type?.role || '').toLowerCase()
       if (candidateRole !== 'reference') return false
-      if (!isTape) return true
       const candidateName = String(item?.equipment_type?.name || '')
         .trim()
         .toLowerCase()
+      if (isBalance) {
+        return candidateName.startsWith('pesa')
+      }
+      if (!isTape) return true
       return (
         candidateName === 'cinta metrica plomada fondo' ||
         candidateName === 'cinta metrica plomada vacio'
       )
     })
-  }, [equipments, verificationEquipment, requiresComparisonReadings, requiresTapeComparison])
+  }, [
+    equipments,
+    verificationEquipment,
+    requiresComparisonReadings,
+    requiresTapeComparison,
+    requiresBalanceComparison,
+  ])
+
+  const selectedReferenceEquipment = useMemo(() => {
+    const selectedId = String(verificationForm.reference_equipment_id || '')
+    if (!selectedId) return null
+    return referenceEquipmentOptions.find(
+      (item) => String(item.id) === selectedId
+    ) || null
+  }, [referenceEquipmentOptions, verificationForm.reference_equipment_id])
+
+  const kfBalanceOptions = useMemo(() => {
+    if (!requiresKarlFischerVerification || !verificationEquipment) return []
+    return (equipments || []).filter((item) => {
+      if (!item?.id || item.id === verificationEquipment.id) return false
+      if (item.terminal_id !== verificationEquipment.terminal_id) return false
+      if (item.is_active === false) return false
+      if (item.status !== 'in_use') return false
+      const candidateName = String(item?.equipment_type?.name || '')
+        .trim()
+        .toLowerCase()
+      return candidateName === 'balanza analitica'
+    })
+  }, [equipments, verificationEquipment, requiresKarlFischerVerification])
+
+  const selectedKfBalance = useMemo(() => {
+    const selectedId = String(verificationForm.reference_equipment_id || '')
+    if (!selectedId) return null
+    return kfBalanceOptions.find((item) => String(item.id) === selectedId) || null
+  }, [kfBalanceOptions, verificationForm.reference_equipment_id])
 
   const hydrometerReferenceOptions = useMemo(() => {
     if (!verificationEquipment || !isHydrometerMonthlyVerification) return []
@@ -816,6 +923,78 @@ model: '',
     const roleKey = String(type?.role || '').toLowerCase()
     const roleLabel = EQUIPMENT_ROLE_LABELS[roleKey] || roleKey || '-'
     return `${type?.name || '-'} (${roleLabel})`
+  }
+
+  const isWeightEquipmentType = (type) =>
+    String(type?.name || '').toLowerCase().includes('pesa')
+
+const getWeightEmp = (nominalValue, weightClass) => {
+    const nominalKey = Number(nominalValue)
+    const classKey = String(weightClass || '').toUpperCase()
+  if (!WEIGHT_EMP_TABLE_MG[nominalKey]) return null
+  const empMg = WEIGHT_EMP_TABLE_MG[nominalKey]?.[classKey]
+  if (empMg === null || empMg === undefined) return null
+  return empMg / 1000
+}
+
+const formatWeightSuffix = (nominalValue) => {
+  const numeric = Number(nominalValue)
+  if (!Number.isFinite(numeric)) return ''
+  const value =
+    Number.isInteger(numeric) ? String(numeric) : String(numeric).replace(/0+$/, '').replace(/\.$/, '')
+  return `${value}G`
+}
+
+const normalizeWeightToGrams = (value, unit) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  const key = String(unit || '').trim().toLowerCase()
+  if (key === 'g') return numeric
+  if (key === 'mg') return numeric / 1000
+  if (key === 'kg') return numeric * 1000
+  return null
+}
+
+const normalizeWeightSerial = (serial, nominalValue) => {
+  const suffix = formatWeightSuffix(nominalValue)
+  if (!suffix) return { serial, changed: false }
+  const raw = String(serial || '').trim()
+  const normalized = raw.replace(/\s+/g, ' ')
+  const normalizedCompact = normalized.toUpperCase().replace(/\s+/g, '')
+  const expectedCompact = suffix.toUpperCase()
+  if (normalizedCompact.endsWith(expectedCompact)) {
+    return { serial: normalized, changed: false }
+  }
+  const cleaned = normalized.replace(/\s*\d+(?:\.\d+)?\s*[gG]\s*$/, '').trim()
+  const next = cleaned ? `${cleaned} ${suffix}` : suffix
+  return { serial: next, changed: true, suffix }
+}
+
+  const getEquipmentTypeById = (equipmentTypeId) =>
+    equipmentTypes.find((type) => String(type?.id) === String(equipmentTypeId))
+
+  const getEquipmentTypeNameById = (equipmentTypeId) =>
+    getEquipmentTypeById(equipmentTypeId)?.name || String(equipmentTypeId || '-')
+
+  const getEquipmentTypeRoleLabelById = (equipmentTypeId) => {
+    const roleKey = String(getEquipmentTypeById(equipmentTypeId)?.role || '').toLowerCase()
+    return EQUIPMENT_ROLE_LABELS[roleKey] || roleKey || '-'
+  }
+
+  const getTerminalNameById = (terminalId) => {
+    if (!terminalId) return '-'
+    const match = (terminals || []).find(
+      (terminal) => String(terminal?.id) === String(terminalId)
+    )
+    return match?.name || String(terminalId)
+  }
+
+  const formatDateTime = (value) =>
+    value ? new Date(value).toLocaleString() : '-'
+
+  const getUserNameById = (userId) => {
+    if (!userId) return '-'
+    return userNameById[String(userId)] || String(userId)
   }
   const getLatestApprovedInspectionDate = (inspections = []) => {
     if (!Array.isArray(inspections)) return null
@@ -1095,6 +1274,36 @@ model: '',
     }
   }
 
+  const parseBalanceComparisonFromNotes = (notes = '') => {
+    const text = String(notes || '')
+    const patronMatch = text.match(/Patron ID:\s*(\d+)/i)
+    const weightMatch = text.match(/Pesa:\s*([^|]+)/i)
+    const balanceMatch = text.match(/Lectura balanza:\s*([^|]+)/i)
+    const diffMatch = text.match(/Diferencia\s*\(Pesa-Balanza\):\s*([^|]+)/i)
+    return {
+      patronId: patronMatch ? patronMatch[1] : null,
+      weight: weightMatch ? weightMatch[1].trim() : null,
+      balance: balanceMatch ? balanceMatch[1].trim() : null,
+      diff: diffMatch ? diffMatch[1].trim() : null,
+    }
+  }
+
+  const parseKarlFischerNotes = (notes = '') => {
+    const text = String(notes || '')
+    const weight1 = text.match(/Peso1:\s*([-+]?\d*\.?\d+)/i)
+    const volume1 = text.match(/Volumen1:\s*([-+]?\d*\.?\d+)/i)
+    const weight2 = text.match(/Peso2:\s*([-+]?\d*\.?\d+)/i)
+    const volume2 = text.match(/Volumen2:\s*([-+]?\d*\.?\d+)/i)
+    const balanceId = text.match(/Balanza ID:\s*(\d+)/i)
+    return {
+      balanceId: balanceId ? balanceId[1] : null,
+      weight1: weight1 ? weight1[1] : null,
+      volume1: volume1 ? volume1[1] : null,
+      weight2: weight2 ? weight2[1] : null,
+      volume2: volume2 ? volume2[1] : null,
+    }
+  }
+
   const parseDifferenceToF = (notes = '') => {
     const text = String(notes || '')
     const monthlyMatches = [
@@ -1130,6 +1339,30 @@ model: '',
     )
     if (!match) return null
     const raw = Number(match[1])
+    if (Number.isNaN(raw)) return null
+    return raw
+  }
+
+  const parseDifferenceToG = (notes = '') => {
+    const text = String(notes || '')
+    const match = text.match(
+      /Diferencia\s*\(Pesa-Balanza\):\s*([-+]?\d*[\.,]?\d+)\s*g/i
+    )
+    if (!match) {
+      return null
+    }
+    const normalized = String(match[1]).replace(',', '.')
+    const raw = Number(normalized)
+    if (Number.isNaN(raw)) return null
+    return raw
+  }
+
+  const parseEmpToG = (notes = '') => {
+    const text = String(notes || '')
+    const match = text.match(/<=\s*([-+]?\d*[\.,]?\d+)\s*g/i)
+    if (!match) return null
+    const normalized = String(match[1]).replace(',', '.')
+    const raw = Number(normalized)
     if (Number.isNaN(raw)) return null
     return raw
   }
@@ -1185,13 +1418,56 @@ model: '',
   const buildControlChartPointsFromVerifications = (
     verifications,
     isMonthly = false,
-    isTape = false
+    isTape = false,
+    isBalance = false
   ) => {
     return (verifications || [])
       .map((verification) => {
         if (!verification?.verified_at) return null
         const ts = new Date(verification.verified_at).getTime()
         if (Number.isNaN(ts)) return null
+        if (isBalance) {
+          let diffG = parseDifferenceToG(verification?.notes)
+          if (diffG === null) {
+            const comparison = parseBalanceComparisonFromNotes(verification?.notes || '')
+            const diffText = String(comparison?.diff || '').replace(',', '.')
+            const parsed = diffText.match(/-?\d*\.?\d+/)
+            diffG = parsed ? Number(parsed[0]) : null
+          }
+          if (diffG === null || Number.isNaN(diffG)) return null
+          const comparison = parseBalanceComparisonFromNotes(verification?.notes || '')
+          const patronId = comparison?.patronId
+          let emp = null
+          if (patronId) {
+            const referenceEquipment = (equipments || []).find(
+              (item) => String(item?.id) === String(patronId)
+            )
+            if (referenceEquipment) {
+              const storedEmp = Number(referenceEquipment.emp_value)
+              if (storedEmp > 0) {
+                emp = storedEmp
+              } else if (
+                referenceEquipment.nominal_mass_value &&
+                referenceEquipment.weight_class
+              ) {
+                const nominal =
+                  referenceEquipment.nominal_mass_unit === 'mg'
+                    ? Number(referenceEquipment.nominal_mass_value) / 1000
+                    : Number(referenceEquipment.nominal_mass_value)
+                emp = getWeightEmp(nominal, referenceEquipment.weight_class)
+              }
+            }
+          }
+          if (emp == null) {
+            emp = parseEmpToG(verification?.notes)
+          }
+          return {
+            ts,
+            dateLabel: new Date(verification.verified_at).toLocaleDateString(),
+            diffG,
+            emp,
+          }
+        }
         if (isTape) {
           const diffMm = parseDifferenceToMm(verification?.notes)
           if (diffMm === null) return null
@@ -1238,6 +1514,9 @@ model: '',
       verificationHistoryTypeId
     )
     if (isMonthlyHistory) {
+      return byType
+    }
+    if (verificationRangeMode === 'all') {
       return byType
     }
     if (verificationRangeMode === 'last30') {
@@ -1561,6 +1840,8 @@ model: '',
         return [{ value: 'pa', label: 'Pa' }]
       case 'api':
         return [{ value: 'api', label: '°API' }]
+      case 'percent_pv':
+        return [{ value: '%p/v', label: '% p/v' }]
       default:
         return []
     }
@@ -1578,6 +1859,8 @@ model: '',
         return 'Pa'
       case 'api':
         return '°API'
+      case 'percent_pv':
+        return '% p/v'
       default:
         return ''
     }
@@ -1595,6 +1878,8 @@ model: '',
         return 'pa'
       case 'api':
         return 'api'
+      case 'percent_pv':
+        return '%p/v'
       default:
         return ''
     }
@@ -1606,6 +1891,17 @@ model: '',
   const selectedMeasures = Array.isArray(selectedEquipmentType?.measures)
     ? selectedEquipmentType.measures
     : []
+  const isWeightTypeSelected = isWeightEquipmentType(selectedEquipmentType)
+  const selectedEquipmentTypeName = selectedEquipmentType?.name || ''
+  const selectedEquipmentTypeRole = selectedEquipmentType?.role || ''
+  const availableEditRoles = useMemo(() => {
+    if (!selectedEquipmentTypeName) return []
+    const roles = equipmentTypes
+      .filter((type) => String(type?.name || '') === String(selectedEquipmentTypeName))
+      .map((type) => String(type?.role || '').toLowerCase())
+      .filter(Boolean)
+    return Array.from(new Set(roles))
+  }, [equipmentTypes, selectedEquipmentTypeName])
 
   const syncMeasureSpecs = (measures) => {
     setMeasureSpecs((prev) => {
@@ -1624,14 +1920,56 @@ model: '',
       })
     }
 
-  const openView = (equipment) => {
+  const openView = async (equipment) => {
     setViewEquipment(equipment)
     setIsViewOpen(true)
+    setEquipmentHistoryItems([])
+    setEquipmentHistoryError('')
+    if (!equipment?.id) return
+    setIsEquipmentHistoryLoading(true)
+    try {
+      if (Object.keys(userNameById).length === 0) {
+        try {
+          const usersData = await fetchUsers({ tokenType, accessToken })
+          const usersList = Array.isArray(usersData?.items) ? usersData.items : []
+          const nextMap = {}
+          usersList.forEach((user) => {
+            if (!user?.id) return
+            const label =
+              user?.full_name ||
+              [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
+              user?.email ||
+              String(user.id)
+            nextMap[String(user.id)] = label
+          })
+          setUserNameById(nextMap)
+        } catch {
+          setUserNameById({})
+        }
+      }
+      const data = await fetchEquipmentHistory({
+        tokenType,
+        accessToken,
+        equipmentId: equipment.id,
+      })
+      const items = Array.isArray(data?.items) ? data.items : []
+      items.sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
+      setEquipmentHistoryItems(items)
+    } catch (err) {
+      setEquipmentHistoryError(
+        err?.detail || 'No se pudo cargar el historial del equipo.'
+      )
+    } finally {
+      setIsEquipmentHistoryLoading(false)
+    }
   }
 
   const closeView = () => {
     setIsViewOpen(false)
     setViewEquipment(null)
+    setEquipmentHistoryItems([])
+    setEquipmentHistoryError('')
+    setIsEquipmentHistoryLoading(false)
   }
 
   const openInspectionHistory = async () => {
@@ -1680,6 +2018,7 @@ model: '',
   const openCalibrationHistoryEdit = (equipment, calibration) => {
     if (!equipment || !calibration) return
     const isHydrometer = isHydrometerEquipment(equipment)
+    const isKarlFischer = isKarlFischerEquipment(equipment)
     setCalibrationEquipment(equipment)
     setCalibrationEditMode(true)
     setCalibrationEditingId(calibration.id || null)
@@ -1701,9 +2040,16 @@ model: '',
             point_label: row.point_label || '',
             reference_value: row.reference_value ?? '',
             measured_value: row.measured_value ?? '',
-            unit: row.unit || (isHydrometer ? 'api' : ''),
+            unit: row.unit || (isHydrometer ? 'api' : isKarlFischer ? 'ml' : ''),
             error_value: row.error_value ?? '',
             tolerance_value: row.tolerance_value ?? '',
+            volume_value: row.volume_value ?? '',
+            systematic_error: row.systematic_error ?? '',
+            systematic_emp: row.systematic_emp ?? '',
+            random_error: row.random_error ?? '',
+            random_emp: row.random_emp ?? '',
+            uncertainty_value: row.uncertainty_value ?? '',
+            k_value: row.k_value ?? '',
             is_ok:
               row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
             notes: row.notes || '',
@@ -1713,9 +2059,16 @@ model: '',
               point_label: '',
               reference_value: '',
               measured_value: '',
-              unit: isHydrometer ? 'api' : '',
+              unit: isHydrometer ? 'api' : isKarlFischer ? 'ml' : '',
               error_value: '',
               tolerance_value: '',
+              volume_value: '',
+              systematic_error: '',
+              systematic_emp: '',
+              random_error: '',
+              random_emp: '',
+              uncertainty_value: '',
+              k_value: '',
               is_ok: '',
               notes: '',
             },
@@ -1729,6 +2082,11 @@ model: '',
   const openCalibration = (equipment) => {
     const today = new Date().toISOString().slice(0, 10)
     const isHydrometer = isHydrometerEquipment(equipment)
+    const isWeight = isWeightEquipmentType(equipment?.equipment_type)
+    const isKarlFischer = isKarlFischerEquipment(equipment)
+    const isScale = String(equipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase() === 'balanza analitica'
     const calibrations = Array.isArray(equipment?.calibrations)
       ? equipment.calibrations
       : []
@@ -1757,25 +2115,41 @@ model: '',
               point_label: row.point_label || '',
               reference_value: row.reference_value ?? '',
               measured_value: row.measured_value ?? '',
-              unit: row.unit || (isHydrometer ? 'api' : ''),
+              unit: row.unit || (isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : ''),
               error_value: row.error_value ?? '',
               tolerance_value: row.tolerance_value ?? '',
+              volume_value: row.volume_value ?? '',
+              systematic_error: row.systematic_error ?? '',
+              systematic_emp: row.systematic_emp ?? '',
+              random_error: row.random_error ?? '',
+              random_emp: row.random_emp ?? '',
+              uncertainty_value: row.uncertainty_value ?? '',
+              k_value: row.k_value ?? '',
               is_ok:
                 row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
               notes: row.notes || '',
             }))
-          : [
-              {
-                point_label: '',
-                reference_value: '',
-                measured_value: '',
-                unit: isHydrometer ? 'api' : '',
-                error_value: '',
-                tolerance_value: '',
-                is_ok: '',
-                notes: '',
-              },
-            ]
+          : isScale
+            ? []
+            : [
+                {
+                  point_label: '',
+                  reference_value: '',
+                  measured_value: '',
+                  unit: isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '',
+                  error_value: '',
+                  tolerance_value: '',
+                  volume_value: '',
+                  systematic_error: '',
+                  systematic_emp: '',
+                  random_error: '',
+                  random_emp: '',
+                  uncertainty_value: '',
+                  k_value: '',
+                  is_ok: '',
+                  notes: '',
+                },
+              ]
       )
     } else {
       setCalibrationEditMode(false)
@@ -1787,18 +2161,29 @@ model: '',
         certificate_number: '',
         notes: '',
       })
-      setCalibrationResults([
-        {
-          point_label: '',
-          reference_value: '',
-          measured_value: '',
-          unit: isHydrometer ? 'api' : '',
-          error_value: '',
-          tolerance_value: '',
-          is_ok: '',
-          notes: '',
-        },
-      ])
+      setCalibrationResults(
+        isScale
+          ? []
+          : [
+              {
+                point_label: '',
+                reference_value: '',
+                measured_value: '',
+                unit: isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '',
+                error_value: '',
+                tolerance_value: '',
+                volume_value: '',
+                systematic_error: '',
+                systematic_emp: '',
+                random_error: '',
+                random_emp: '',
+                uncertainty_value: '',
+                k_value: '',
+                is_ok: '',
+                notes: '',
+              },
+            ]
+      )
     }
     setCalibrationFile(null)
     setIsCalibrationOpen(true)
@@ -1825,7 +2210,9 @@ model: '',
   }
 
   const openVerificationHistory = (typeId = '') => {
-    setVerificationHistoryTypeId(typeId ? String(typeId) : '')
+    const normalizedTypeId = typeId ? String(typeId) : ''
+    setVerificationHistoryTypeId(normalizedTypeId)
+    setVerificationRangeMode(normalizedTypeId ? 'last30' : 'all')
     setIsVerificationHistoryOpen(true)
   }
 
@@ -1903,6 +2290,7 @@ model: '',
       ? { cleanNotes: stripHydrometerNotes(rawNotes), parsed: null }
       : parseComparisonFromNotes(verification.notes || '')
     const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes || rawNotes)
+    const kfParsed = parseKarlFischerNotes(verification.notes || '')
     const normalizedNotes = cleanedHydrometerNotes || ''
     const shouldClearNotes = isHydrometer
     const hydrometerParsed = parseHydrometerMonthlyFromNotes(verification.notes || '')
@@ -1926,7 +2314,12 @@ model: '',
       verification_type_id: String(verification?.verification_type_id || ''),
       notes: shouldClearNotes ? '' : normalizedNotes,
       verified_at: canEditVerificationDate ? verifiedDate : '',
-      reference_equipment_id: parsed?.reference_equipment_id || '',
+      reference_equipment_id:
+        parsed?.reference_equipment_id || kfParsed.balanceId || '',
+      kf_weight_1: kfParsed.weight1 || '',
+      kf_volume_1: kfParsed.volume1 || '',
+      kf_weight_2: kfParsed.weight2 || '',
+      kf_volume_2: kfParsed.volume2 || '',
       product_name: hydrometerParsed?.product_name || 'Crudo',
       thermometer_working_id: hydrometerParsed?.thermometer_working_id || '',
       hydrometer_working_value: hydrometerParsed?.hydrometer_working_value || '',
@@ -1936,6 +2329,8 @@ model: '',
       thermometer_unit: hydrometerParsed?.thermometer_unit || 'c',
       reading_under_test_f: parsed?.reading_under_test_f || '',
       reference_reading_f: parsed?.reference_reading_f || '',
+      balance_reading_value: '',
+      balance_unit: 'g',
       reading_under_test_high_value:
         parsed?.reading_under_test_high_value ||
         monthlyFromApi.reading_under_test_high_value ||
@@ -2109,6 +2504,10 @@ model: '',
       notes: '',
       verified_at: canEditVerificationDate ? today : '',
       reference_equipment_id: '',
+      kf_weight_1: '',
+      kf_volume_1: '',
+      kf_weight_2: '',
+      kf_volume_2: '',
       product_name: 'Crudo',
       thermometer_working_id: '',
       hydrometer_working_value: '',
@@ -2118,6 +2517,8 @@ model: '',
       thermometer_unit: 'c',
       reading_under_test_f: '',
       reference_reading_f: '',
+      balance_reading_value: '',
+      balance_unit: 'g',
       reading_under_test_high_value: '',
       reading_under_test_mid_value: '',
       reading_under_test_low_value: '',
@@ -2194,6 +2595,7 @@ model: '',
           const normalizedNotes = cleanedHydrometerNotes || ''
           const shouldClearNotes = isHydrometer
           const hydrometerParsed = parseHydrometerMonthlyFromNotes(latest.notes || '')
+          const kfParsed = parseKarlFischerNotes(latest.notes || '')
           const monthlyFromApi = {
             reading_under_test_high_value: latest?.reading_under_test_high_value,
             reading_under_test_mid_value: latest?.reading_under_test_mid_value,
@@ -2214,7 +2616,12 @@ model: '',
             reference_equipment_id:
               parsed?.reference_equipment_id ||
               hydrometerParsed?.reference_equipment_id ||
+              kfParsed.balanceId ||
               prev.reference_equipment_id,
+            kf_weight_1: kfParsed.weight1 || prev.kf_weight_1,
+            kf_volume_1: kfParsed.volume1 || prev.kf_volume_1,
+            kf_weight_2: kfParsed.weight2 || prev.kf_weight_2,
+            kf_volume_2: kfParsed.volume2 || prev.kf_volume_2,
             product_name: hydrometerParsed?.product_name || prev.product_name,
             thermometer_working_id:
               hydrometerParsed?.thermometer_working_id || prev.thermometer_working_id,
@@ -2295,6 +2702,10 @@ model: '',
       notes: '',
       verified_at: '',
       reference_equipment_id: '',
+      kf_weight_1: '',
+      kf_volume_1: '',
+      kf_weight_2: '',
+      kf_volume_2: '',
       product_name: 'Crudo',
       thermometer_working_id: '',
       hydrometer_working_value: '',
@@ -2354,14 +2765,20 @@ model: '',
     setFormData({
       internal_code: equipment.internal_code || '',
       serial: equipment.serial || '',
-component_serials_text: serializeComponentSerials(equipment.component_serials),
-model: equipment.model || '',
+      component_serials_text: serializeComponentSerials(equipment.component_serials),
+      model: equipment.model || '',
       brand: equipment.brand || '',
       status: equipment.status || 'in_use',
       is_active: equipment.is_active ?? true,
       equipment_type_id: equipment.equipment_type_id || '',
       owner_company_id: equipment.owner_company_id || '',
       terminal_id: equipment.terminal_id || '',
+      weight_class: equipment.weight_class || '',
+      nominal_mass_value:
+        equipment.nominal_mass_value === null || equipment.nominal_mass_value === undefined
+          ? ''
+          : String(equipment.nominal_mass_value),
+      nominal_mass_unit: equipment.nominal_mass_unit || '',
     })
     setIsEditOpen(true)
     const baseType = equipmentTypes.find(
@@ -2423,6 +2840,9 @@ applyMeasureSpecs(specList, measures)
                 equipment_type_id: '',
                 owner_company_id: '',
                 terminal_id: '',
+                weight_class: '',
+                nominal_mass_value: '',
+                nominal_mass_unit: '',
               })
               setMeasureSpecs({})
               setIsCreateOpen(true)
@@ -2647,35 +3067,41 @@ applyMeasureSpecs(specList, measures)
                               </Box>
                             </TableCell>
                             <TableCell align="center">
-                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                                <Tooltip title={getInspectionTooltip(item)} arrow placement="top">
-                                  <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                                    {renderInspectionBadge(item)}
-                                  </Box>
-                                </Tooltip>
-                                {!isReadOnly ? (
-                                  <Tooltip
-                                    title={
-                                      !isCalibrationVigente(item)
-                                        ? 'Se requiere calibracion vigente'
-                                        : 'Registrar inspeccion'
-                                    }
-                                    arrow
-                                  >
-                                    <span>
-                                      <IconButton
-                                        size="small"
-                                        aria-label="Registrar inspeccion"
-                                        onClick={() => openInspection(item)}
-                                        disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
-                                        sx={{ color: '#64748b', '&:hover': { color: '#2563eb' } }}
-                                      >
-                                        <FactCheck fontSize="small" />
-                                      </IconButton>
-                                    </span>
+                              {isWeightEquipmentType(item?.equipment_type) ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  No aplica
+                                </Typography>
+                              ) : (
+                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Tooltip title={getInspectionTooltip(item)} arrow placement="top">
+                                    <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+                                      {renderInspectionBadge(item)}
+                                    </Box>
                                   </Tooltip>
-                                ) : null}
-                              </Box>
+                                  {!isReadOnly ? (
+                                    <Tooltip
+                                      title={
+                                        !isCalibrationVigente(item)
+                                          ? 'Se requiere calibracion vigente'
+                                          : 'Registrar inspeccion'
+                                      }
+                                      arrow
+                                    >
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          aria-label="Registrar inspeccion"
+                                          onClick={() => openInspection(item)}
+                                          disabled={item.status !== 'in_use' || !isCalibrationVigente(item)}
+                                          sx={{ color: '#64748b', '&:hover': { color: '#2563eb' } }}
+                                        >
+                                          <FactCheck fontSize="small" />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  ) : null}
+                                </Box>
+                              )}
                             </TableCell>
                             <TableCell align="center">
                               {(() => {
@@ -2985,13 +3411,17 @@ applyMeasureSpecs(specList, measures)
                   value={formData.equipment_type_id}
                   onChange={(event) => {
                     const nextValue = event.target.value
-                    setFormData((prev) => ({
-                      ...prev,
-                      equipment_type_id: nextValue,
-                    }))
                     const nextType = equipmentTypes.find(
                       (type) => String(type.id) === String(nextValue)
                     )
+                    const isWeightType = isWeightEquipmentType(nextType)
+                    setFormData((prev) => ({
+                      ...prev,
+                      equipment_type_id: nextValue,
+                      weight_class: isWeightType ? prev.weight_class : '',
+                      nominal_mass_value: isWeightType ? prev.nominal_mass_value : '',
+                      nominal_mass_unit: isWeightType ? 'g' : '',
+                    }))
                     const measures = Array.isArray(nextType?.measures)
                       ? nextType.measures
                       : []
@@ -3008,6 +3438,58 @@ applyMeasureSpecs(specList, measures)
                   <FormHelperText>No hay tipos de equipo disponibles.</FormHelperText>
                 ) : null}
               </FormControl>
+              {isWeightTypeSelected ? (
+                <>
+                  <FormControl required>
+                    <InputLabel id="equipment-weight-class-create">Clase</InputLabel>
+                    <Select
+                      labelId="equipment-weight-class-create"
+                      label="Clase"
+                      value={formData.weight_class}
+                      onChange={(event) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          weight_class: event.target.value,
+                        }))
+                      }
+                    >
+                      {WEIGHT_CLASS_OPTIONS.map((option) => (
+                        <MenuItem key={option} value={option}>
+                          {option}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl required>
+                    <InputLabel id="equipment-weight-nominal-create">Peso nominal (g)</InputLabel>
+                    <Select
+                      labelId="equipment-weight-nominal-create"
+                      label="Peso nominal (g)"
+                      value={formData.nominal_mass_value}
+                      onChange={(event) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          nominal_mass_value: event.target.value,
+                        }))
+                      }
+                    >
+                      {WEIGHT_NOMINAL_G_OPTIONS.map((option) => (
+                        <MenuItem key={option} value={String(option)}>
+                          {option} g
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="EMP"
+                    value={
+                      getWeightEmp(formData.nominal_mass_value, formData.weight_class) ??
+                      ''
+                    }
+                    InputProps={{ readOnly: true }}
+                  />
+                </>
+              ) : null}
           </Box>
           {selectedMeasures.length > 0 ? (
             <Box sx={{ display: 'grid', gap: 1.5 }}>
@@ -3212,6 +3694,47 @@ applyMeasureSpecs(specList, measures)
                 })
                 return
               }
+              let weightClass = null
+              let nominalMassValue = null
+              let nominalMassUnit = null
+              if (isWeightTypeSelected) {
+                weightClass = String(formData.weight_class || '').trim()
+                nominalMassValue = String(formData.nominal_mass_value || '').trim()
+                if (!weightClass || !nominalMassValue) {
+                  setToast({
+                    open: true,
+                    message: 'Selecciona clase y peso nominal para la pesa.',
+                    severity: 'error',
+                  })
+                  return
+                }
+                const empValue = getWeightEmp(nominalMassValue, weightClass)
+                if (empValue === null) {
+                  setToast({
+                    open: true,
+                    message: 'La combinacion de clase y peso nominal no es valida.',
+                    severity: 'error',
+                  })
+                  return
+                }
+                nominalMassUnit = 'g'
+                const normalizedSerial = normalizeWeightSerial(
+                  formData.serial,
+                  nominalMassValue
+                )
+                if (normalizedSerial.changed) {
+                  setFormData((prev) => ({
+                    ...prev,
+                    serial: normalizedSerial.serial,
+                  }))
+                  setToast({
+                    open: true,
+                    message: `El serial se ajusto para incluir el peso: ${normalizedSerial.serial}`,
+                    severity: 'warning',
+                  })
+                  return
+                }
+              }
 
               setIsCreateLoading(true)
               setIsCreateOpen(false)
@@ -3230,6 +3753,11 @@ applyMeasureSpecs(specList, measures)
                     equipment_type_id: Number(formData.equipment_type_id),
                     owner_company_id: Number(formData.owner_company_id),
                     terminal_id: Number(formData.terminal_id),
+                    weight_class: weightClass || null,
+                    nominal_mass_value: nominalMassValue
+                      ? Number(nominalMassValue)
+                      : null,
+                    nominal_mass_unit: nominalMassUnit,
                     component_serials: componentSerials,
                     measure_specs: selectedMeasures.map((measure) => ({
                         measure,
@@ -3398,37 +3926,100 @@ applyMeasureSpecs(specList, measures)
                   <MenuItem value="inactive">Inactivo</MenuItem>
                 </Select>
               </FormControl>
+              <TextField
+                label="Tipo de equipo"
+                value={selectedEquipmentTypeName || '-'}
+                InputProps={{ readOnly: true }}
+              />
               <FormControl required>
-                <InputLabel id="equipment-type-edit">Tipo de equipo</InputLabel>
+                <InputLabel id="equipment-role-edit">Rol</InputLabel>
                 <Select
-                  labelId="equipment-type-edit"
-                  label="Tipo de equipo"
-                  value={formData.equipment_type_id}
+                  labelId="equipment-role-edit"
+                  label="Rol"
+                  value={String(selectedEquipmentTypeRole || '').toLowerCase()}
                   onChange={(event) => {
-                    const nextValue = event.target.value
+                    const nextRole = String(event.target.value || '').toLowerCase()
+                    if (!selectedEquipmentTypeName || !nextRole) return
+                    const nextType = equipmentTypes.find(
+                      (type) =>
+                        String(type?.name || '') === String(selectedEquipmentTypeName) &&
+                        String(type?.role || '').toLowerCase() === nextRole
+                    )
+                    if (!nextType) return
                     setFormData((prev) => ({
                       ...prev,
-                      equipment_type_id: nextValue,
+                      equipment_type_id: nextType.id,
                     }))
-                    const nextType = equipmentTypes.find(
-                      (type) => String(type.id) === String(nextValue)
-                    )
                     const measures = Array.isArray(nextType?.measures)
                       ? nextType.measures
                       : []
                     syncMeasureSpecs(measures)
                   }}
                 >
-                  {equipmentTypes.map((type) => (
-                    <MenuItem key={type.id} value={type.id}>
-                      {formatEquipmentTypeOptionLabel(type)}
+                  {availableEditRoles.map((roleKey) => (
+                    <MenuItem key={roleKey} value={roleKey}>
+                      {EQUIPMENT_ROLE_LABELS[roleKey] || roleKey}
                     </MenuItem>
                   ))}
                 </Select>
-                {!equipmentTypes.length ? (
-                  <FormHelperText>No hay tipos de equipo disponibles.</FormHelperText>
+                {availableEditRoles.length === 0 ? (
+                  <FormHelperText>No hay roles disponibles para este tipo.</FormHelperText>
+                ) : availableEditRoles.length === 1 ? (
+                  <FormHelperText>Solo existe un rol para este tipo.</FormHelperText>
                 ) : null}
               </FormControl>
+              {isWeightTypeSelected ? (
+                <>
+                  <FormControl required>
+                    <InputLabel id="equipment-weight-class-edit">Clase</InputLabel>
+                    <Select
+                      labelId="equipment-weight-class-edit"
+                      label="Clase"
+                      value={formData.weight_class}
+                      onChange={(event) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          weight_class: event.target.value,
+                        }))
+                      }
+                    >
+                      {WEIGHT_CLASS_OPTIONS.map((option) => (
+                        <MenuItem key={option} value={option}>
+                          {option}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl required>
+                    <InputLabel id="equipment-weight-nominal-edit">Peso nominal (g)</InputLabel>
+                    <Select
+                      labelId="equipment-weight-nominal-edit"
+                      label="Peso nominal (g)"
+                      value={formData.nominal_mass_value}
+                      onChange={(event) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          nominal_mass_value: event.target.value,
+                        }))
+                      }
+                    >
+                      {WEIGHT_NOMINAL_G_OPTIONS.map((option) => (
+                        <MenuItem key={option} value={String(option)}>
+                          {option} g
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="EMP"
+                    value={
+                      getWeightEmp(formData.nominal_mass_value, formData.weight_class) ??
+                      ''
+                    }
+                    InputProps={{ readOnly: true }}
+                  />
+                </>
+              ) : null}
             </Box>
             {selectedMeasures.length > 0 ? (
               <Box sx={{ display: 'grid', gap: 1.5 }}>
@@ -3636,6 +4227,47 @@ applyMeasureSpecs(specList, measures)
                   })
                   return
                 }
+                let weightClass = null
+                let nominalMassValue = null
+                let nominalMassUnit = null
+                if (isWeightTypeSelected) {
+                  weightClass = String(formData.weight_class || '').trim()
+                  nominalMassValue = String(formData.nominal_mass_value || '').trim()
+                  if (!weightClass || !nominalMassValue) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona clase y peso nominal para la pesa.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  const empValue = getWeightEmp(nominalMassValue, weightClass)
+                  if (empValue === null) {
+                    setToast({
+                      open: true,
+                      message: 'La combinacion de clase y peso nominal no es valida.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  nominalMassUnit = 'g'
+                  const normalizedSerial = normalizeWeightSerial(
+                    formData.serial,
+                    nominalMassValue
+                  )
+                  if (normalizedSerial.changed) {
+                    setFormData((prev) => ({
+                      ...prev,
+                      serial: normalizedSerial.serial,
+                    }))
+                    setToast({
+                      open: true,
+                      message: `El serial se ajusto para incluir el peso: ${normalizedSerial.serial}`,
+                      severity: 'warning',
+                    })
+                    return
+                  }
+                }
 
                 setIsUpdateLoading(true)
                 closeEdit()
@@ -3654,7 +4286,12 @@ applyMeasureSpecs(specList, measures)
                       inspection_days_override: null,
                       equipment_type_id: Number(formData.equipment_type_id),
                       owner_company_id: Number(formData.owner_company_id),
-                    terminal_id: Number(formData.terminal_id),
+                      terminal_id: Number(formData.terminal_id),
+                      weight_class: weightClass || null,
+                      nominal_mass_value: nominalMassValue
+                        ? Number(nominalMassValue)
+                        : null,
+                      nominal_mass_unit: nominalMassUnit,
                     component_serials: componentSerials,
                     measure_specs: selectedMeasures.map((measure) => ({
                         measure,
@@ -3836,19 +4473,25 @@ applyMeasureSpecs(specList, measures)
                 <Typography variant="subtitle2" color="text.secondary">
                   Inspecciones
                 </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  {renderInspectionBadge(viewEquipment)}
-                  <Typography variant="body2">
-                    Ultima: {getLastInspectionDateLabel(viewEquipment?.inspections)}
+                {isWeightEquipmentType(viewEquipment?.equipment_type) ? (
+                  <Typography variant="body2" color="text.secondary">
+                    No aplica
                   </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={openInspectionHistory}
-                  >
-                    Ver inspecciones
-                  </Button>
-                </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    {renderInspectionBadge(viewEquipment)}
+                    <Typography variant="body2">
+                      Ultima: {getLastInspectionDateLabel(viewEquipment?.inspections)}
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={openInspectionHistory}
+                    >
+                      Ver inspecciones
+                    </Button>
+                  </Box>
+                )}
               </Box>
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">
@@ -3856,22 +4499,39 @@ applyMeasureSpecs(specList, measures)
                 </Typography>
                 <Box sx={{ display: 'grid', gap: 0.75 }}>
                   {(() => {
-                    const equipmentRole = String(
-                      viewEquipment?.equipment_type?.role || ''
-                    ).toLowerCase()
-                    if (equipmentRole === 'reference') {
-                      return (
-                        <Typography variant="body2" color="text.secondary">
-                          No aplica
-                        </Typography>
-                      )
-                    }
                     const types = getVerificationTypesForEquipment(viewEquipment) || []
+                    const allVerifications = Array.isArray(viewEquipment?.verifications)
+                      ? viewEquipment.verifications
+                      : []
                     if (types.length === 0) {
+                      if (allVerifications.length === 0) {
+                        return (
+                          <Typography variant="body2" color="text.secondary">
+                            Sin verificaciones
+                          </Typography>
+                        )
+                      }
                       return (
-                        <Typography variant="body2" color="text.secondary">
-                          No aplica
-                        </Typography>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          {renderVerificationBadge(allVerifications)}
+                          <Typography variant="body2">
+                            Ultima: {getLastVerificationDateLabel(allVerifications)}
+                          </Typography>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => openVerificationHistory('')}
+                          >
+                            Ver verificaciones
+                          </Button>
+                        </Box>
                       )
                     }
                     return types.map((typeItem) => (
@@ -3884,6 +4544,13 @@ applyMeasureSpecs(specList, measures)
                           flexWrap: 'wrap',
                         }}
                       >
+                        {renderVerificationBadge(
+                          (viewEquipment?.verifications || []).filter(
+                            (verification) =>
+                              String(verification?.verification_type_id) ===
+                              String(typeItem.id)
+                          )
+                        )}
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {typeItem.name}
                         </Typography>
@@ -3919,6 +4586,65 @@ applyMeasureSpecs(specList, measures)
                     Ver calibraciones
                   </Button>
                 </Box>
+              </Box>
+              <Box sx={{ gridColumn: { xs: '1 / -1', sm: '1 / -1' } }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Historial del equipo
+                </Typography>
+                {isEquipmentHistoryLoading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                    <CircularProgress size={20} />
+                    <Typography color="text.secondary">
+                      Cargando historial...
+                    </Typography>
+                  </Box>
+                ) : equipmentHistoryError ? (
+                  <Typography color="text.secondary" sx={{ mt: 1 }}>
+                    {equipmentHistoryError}
+                  </Typography>
+                ) : equipmentHistoryItems.length === 0 ? (
+                  <Typography color="text.secondary" sx={{ mt: 1 }}>
+                    Sin historial registrado.
+                  </Typography>
+                ) : (
+                  <TableContainer
+                    component={Paper}
+                    variant="outlined"
+                    sx={{ maxHeight: 360, mt: 1 }}
+                  >
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Tipo</TableCell>
+                          <TableCell>Valor</TableCell>
+                          <TableCell>Desde</TableCell>
+                          <TableCell>Hasta</TableCell>
+                          <TableCell>Cambiado por</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {equipmentHistoryItems.map((entry) => {
+                          const isType = entry.kind === 'type'
+                          const label = isType ? 'Rol' : 'Estacion'
+                          const value = isType
+                            ? `${getEquipmentTypeNameById(entry.equipment_type_id)} (${getEquipmentTypeRoleLabelById(entry.equipment_type_id)})`
+                            : getTerminalNameById(entry.terminal_id)
+                          return (
+                            <TableRow key={entry.id}>
+                              <TableCell>{label}</TableCell>
+                              <TableCell>{value}</TableCell>
+                              <TableCell>{formatDateTime(entry.started_at)}</TableCell>
+                              <TableCell>
+                                {entry.ended_at ? formatDateTime(entry.ended_at) : 'Actual'}
+                              </TableCell>
+                              <TableCell>{getUserNameById(entry.changed_by_user_id)}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
               </Box>
             </Box>
           </DialogContent>
@@ -4114,6 +4840,7 @@ applyMeasureSpecs(specList, measures)
                     value={verificationRangeMode}
                     onChange={(event) => setVerificationRangeMode(event.target.value)}
                   >
+                    <MenuItem value="all">Todo el historial</MenuItem>
                     <MenuItem value="last30">Ultimos 30 dias</MenuItem>
                     <MenuItem value="month">Mes y año</MenuItem>
                   </Select>
@@ -4184,7 +4911,17 @@ applyMeasureSpecs(specList, measures)
                 <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
                   <Table size="medium" stickyHeader>
                     <TableHead>
-                      {isTapeEquipment(viewEquipment) ? (
+                      {isBalanceEquipment(viewEquipment) ? (
+                        <TableRow>
+                          <TableCell>Fecha</TableCell>
+                          <TableCell>Serial pesa</TableCell>
+                          <TableCell>Lectura pesa</TableCell>
+                          <TableCell>Lectura balanza</TableCell>
+                          <TableCell>Diferencia</TableCell>
+                          <TableCell>Resultado</TableCell>
+                          {canEditVerificationDate ? <TableCell>Acciones</TableCell> : null}
+                        </TableRow>
+                      ) : isTapeEquipment(viewEquipment) ? (
                         <TableRow>
                           <TableCell>Fecha</TableCell>
                           <TableCell>Lecturas equipo</TableCell>
@@ -4210,6 +4947,7 @@ applyMeasureSpecs(specList, measures)
                     <TableBody>
                       {getFilteredVerifications(viewEquipment).map((verification) => {
                         const isTape = isTapeEquipment(viewEquipment)
+                        const isBalance = isBalanceEquipment(viewEquipment)
                         const comparison = parseVerificationComparison(
                           verification?.notes
                         )
@@ -4217,6 +4955,56 @@ applyMeasureSpecs(specList, measures)
                           ? getEquipmentSerialById(comparison.patronId)
                           : '-'
                         const result = renderVerificationResultLabel(verification?.is_ok)
+                        if (isBalance) {
+                          const balanceComparison = parseBalanceComparisonFromNotes(
+                            verification?.notes
+                          )
+                          const patronId = balanceComparison.patronId
+                          const referenceEquipment = patronId
+                            ? (equipments || []).find(
+                                (item) => String(item?.id) === String(patronId)
+                              )
+                            : null
+                          const weightLabel =
+                            balanceComparison.weight ||
+                            (referenceEquipment
+                              ? `${referenceEquipment.nominal_mass_value ?? '-'} ${
+                                  referenceEquipment.nominal_mass_unit || 'g'
+                                }`
+                              : '-')
+                          const balanceLabel = balanceComparison.balance || '-'
+                          const diffLabel = balanceComparison.diff || '-'
+                          return (
+                            <TableRow key={verification.id}>
+                              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                {verification?.verified_at
+                                  ? new Date(verification.verified_at).toLocaleDateString()
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>{serialPatron}</TableCell>
+                              <TableCell>{weightLabel}</TableCell>
+                              <TableCell>{balanceLabel}</TableCell>
+                              <TableCell>{diffLabel}</TableCell>
+                              <TableCell sx={{ color: result.color, fontWeight: 600 }}>
+                                {verification?.is_ok === false
+                                  ? 'Fuera de control'
+                                  : result.label}
+                              </TableCell>
+                              {canEditVerificationDate ? (
+                                <TableCell>
+                                  <IconButton
+                                    size="small"
+                                    aria-label="Editar verificacion"
+                                    onClick={() => openVerificationHistoryEdit(verification)}
+                                    sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                                  >
+                                    <EditOutlined fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              ) : null}
+                            </TableRow>
+                          )
+                        }
                         if (isTape) {
                           const workValues = [
                             verification?.reading_under_test_high_value,
@@ -4333,14 +5121,17 @@ applyMeasureSpecs(specList, measures)
             </Box>
             <Box sx={{ display: 'grid', gap: 1 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                {isTapeEquipment(viewEquipment)
-                  ? 'Carta de control (Diferencia mm)'
-                  : 'Carta de control (Diferencia F)'}
+                {isBalanceEquipment(viewEquipment)
+                  ? 'Carta de control (Diferencia g)'
+                  : isTapeEquipment(viewEquipment)
+                    ? 'Carta de control (Diferencia mm)'
+                    : 'Carta de control (Diferencia F)'}
               </Typography>
               {buildControlChartPointsFromVerifications(
                 getFilteredVerifications(viewEquipment),
                 isMonthlyVerificationType(viewEquipment, verificationHistoryTypeId),
-                isTapeEquipment(viewEquipment)
+                isTapeEquipment(viewEquipment),
+                isBalanceEquipment(viewEquipment)
               ).length === 0 ? (
                 <Typography color="text.secondary">
                   Sin datos para generar la carta de control.
@@ -4356,6 +5147,7 @@ applyMeasureSpecs(specList, measures)
                 >
                   {(() => {
                     const isTape = isTapeEquipment(viewEquipment)
+                    const isBalance = isBalanceEquipment(viewEquipment)
                     const isMonthlyHistory = isTape
                       ? false
                       : isMonthlyVerificationType(
@@ -4365,10 +5157,33 @@ applyMeasureSpecs(specList, measures)
                     const points = buildControlChartPointsFromVerifications(
                       getFilteredVerifications(viewEquipment),
                       isMonthlyHistory,
-                      isTape
+                      isTape,
+                      isBalance
                     )
                     const limit = isTape ? 2 : 0.5
+                    const maxEmp = isBalance
+                      ? Math.max(
+                          0,
+                          ...points
+                            .map((p) => p.emp)
+                            .filter((value) => typeof value === 'number')
+                        )
+                      : null
+                    const chartEmp = isBalance
+                      ? maxEmp > 0
+                        ? maxEmp
+                        : Math.max(
+                            0.000001,
+                            ...points
+                              .map((p) => Math.abs(p.diffG || 0))
+                              .filter((value) => typeof value === 'number')
+                          )
+                      : null
                     const outOfControlCount = points.filter((p) => {
+                      if (isBalance) {
+                        if (p.emp == null || p.diffG == null) return false
+                        return p.diffG > p.emp || p.diffG < -p.emp
+                      }
                       if (isMonthlyHistory) {
                         return (
                           p.diffHighF > limit ||
@@ -4384,18 +5199,68 @@ applyMeasureSpecs(specList, measures)
                     }).length
                     const allValues = isMonthlyHistory
                       ? points.flatMap((p) => [p.diffHighF, p.diffMidF, p.diffLowF])
-                      : isTape
-                        ? points.map((p) => p.diffMm)
-                        : points.map((p) => p.diffF)
+                      : isBalance
+                        ? points.map((p) => p.diffG)
+                        : isTape
+                          ? points.map((p) => p.diffMm)
+                          : points.map((p) => p.diffF)
                     const numericValues = allValues.filter(
                       (value) => typeof value === 'number' && !Number.isNaN(value)
                     )
-                    const dataMin = numericValues.length
-                      ? Math.min(...numericValues, -limit)
-                      : -limit
-                    const dataMax = numericValues.length
-                      ? Math.max(...numericValues, limit)
-                      : limit
+                    const maxDiffAbs = isBalance
+                      ? Math.max(
+                          0,
+                          ...points
+                            .map((p) => Math.abs(p.diffG || 0))
+                            .filter((value) => typeof value === 'number')
+                        )
+                      : 0
+                    const balanceRange = isBalance
+                      ? Math.max(
+                          (chartEmp || 0) * 5,
+                          maxDiffAbs * 1.2,
+                          0.001
+                        )
+                      : null
+                    const allWithinLimits = isBalance
+                      ? points.every(
+                          (p) =>
+                            p.diffG != null &&
+                            p.emp != null &&
+                            Math.abs(p.diffG) <= p.emp
+                        )
+                      : isMonthlyHistory
+                        ? points.every(
+                            (p) =>
+                              Math.abs(p.diffHighF) <= limit &&
+                              Math.abs(p.diffMidF) <= limit &&
+                              Math.abs(p.diffLowF) <= limit
+                          )
+                        : points.every((p) => {
+                            const value = isTape ? p.diffMm : p.diffF
+                            return Math.abs(value) <= limit
+                          })
+                    const tightRange = isBalance
+                      ? Math.max((chartEmp || 0) * 1.2, 0.000001)
+                      : limit * 1.2
+                    const rangeBase = allWithinLimits
+                      ? tightRange
+                      : isBalance
+                        ? balanceRange || 0
+                        : limit
+                    let dataMin = numericValues.length
+                      ? Math.min(...numericValues, -rangeBase)
+                      : -rangeBase
+                    let dataMax = numericValues.length
+                      ? Math.max(...numericValues, rangeBase)
+                      : rangeBase
+                    if (dataMin === dataMax) {
+                      const padding = isBalance
+                        ? Math.max(Math.abs(dataMin) * 0.1, 0.000001)
+                        : 0.1
+                      dataMin -= padding
+                      dataMax += padding
+                    }
                     const tsValues = points.map((p) => p.ts).filter((ts) => !Number.isNaN(ts))
                     const minTs = tsValues.length ? Math.min(...tsValues) : undefined
                     const maxTs = tsValues.length ? Math.max(...tsValues) : undefined
@@ -4416,21 +5281,29 @@ applyMeasureSpecs(specList, measures)
                                 ? Number(p.diffLowF.toFixed(4))
                                 : undefined,
                           }
-                        : isTape
+                        : isBalance
                           ? {
                               time: p.ts,
-                              diffMm:
-                                typeof p.diffMm === 'number'
-                                  ? Number(p.diffMm.toFixed(4))
+                              diffG:
+                                typeof p.diffG === 'number'
+                                  ? Number(p.diffG.toFixed(6))
                                   : undefined,
                             }
-                          : {
-                              time: p.ts,
-                              diffF:
-                                typeof p.diffF === 'number'
-                                  ? Number(p.diffF.toFixed(4))
-                                  : undefined,
-                            }
+                          : isTape
+                            ? {
+                                time: p.ts,
+                                diffMm:
+                                  typeof p.diffMm === 'number'
+                                    ? Number(p.diffMm.toFixed(4))
+                                    : undefined,
+                              }
+                            : {
+                                time: p.ts,
+                                diffF:
+                                  typeof p.diffF === 'number'
+                                    ? Number(p.diffF.toFixed(4))
+                                    : undefined,
+                              }
                     )
                     return (
                       <Box sx={{ width: '100%', height: 420, position: 'relative' }}>
@@ -4549,7 +5422,11 @@ applyMeasureSpecs(specList, measures)
                               domain={[dataMin, dataMax]}
                               tick={{ fontSize: 11, fill: '#64748b' }}
                               label={{
-                                value: isTape ? 'Diferencia (mm)' : 'Diferencia (F)',
+                                value: isBalance
+                                  ? 'Diferencia (g)'
+                                  : isTape
+                                    ? 'Diferencia (mm)'
+                                    : 'Diferencia (F)',
                                 angle: -90,
                                 position: 'insideLeft',
                                 fill: '#64748b',
@@ -4564,9 +5441,13 @@ applyMeasureSpecs(specList, measures)
                                 const labelMap = {
                                   diffF: 'Diferencia',
                                   diffMm: 'Diferencia',
+                                  diffG: 'Diferencia',
                                   highF: 'Alto',
                                   midF: 'Medio',
                                   lowF: 'Bajo',
+                                }
+                                if (isBalance) {
+                                  return [`${value} g`, labelMap[name] || name]
                                 }
                                 if (isTape) {
                                   return [`${value} mm`, labelMap[name] || name]
@@ -4574,28 +5455,59 @@ applyMeasureSpecs(specList, measures)
                                 return [`${value} F`, labelMap[name] || name]
                               }}
                             />
-                            <ReferenceLine
-                              y={limit}
-                              stroke="#f97316"
-                              strokeDasharray="4 3"
-                              label={{
-                                value: isTape ? '+2 mm' : '+0.5 F',
-                                position: 'insideTopLeft',
-                                fill: '#f97316',
-                                fontSize: 10,
-                              }}
-                            />
-                            <ReferenceLine
-                              y={-limit}
-                              stroke="#f97316"
-                              strokeDasharray="4 3"
-                              label={{
-                                value: isTape ? '-2 mm' : '-0.5 F',
-                                position: 'insideBottomLeft',
-                                fill: '#f97316',
-                                fontSize: 10,
-                              }}
-                            />
+                            {isBalance ? (
+                              <>
+                                <ReferenceLine
+                                  y={chartEmp || 0}
+                                  stroke="#f97316"
+                                  strokeWidth={2}
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: `+${(chartEmp || 0).toFixed(6)} g`,
+                                    position: 'insideTopLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                                <ReferenceLine
+                                  y={-(chartEmp || 0)}
+                                  stroke="#f97316"
+                                  strokeWidth={2}
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: `-${(chartEmp || 0).toFixed(6)} g`,
+                                    position: 'insideBottomLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <ReferenceLine
+                                  y={limit}
+                                  stroke="#f97316"
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: isTape ? '+2 mm' : '+0.5 F',
+                                    position: 'insideTopLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                                <ReferenceLine
+                                  y={-limit}
+                                  stroke="#f97316"
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: isTape ? '-2 mm' : '-0.5 F',
+                                    position: 'insideBottomLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                              </>
+                            )}
                             <ReferenceLine
                               y={0}
                               stroke="#94a3b8"
@@ -4670,18 +5582,24 @@ applyMeasureSpecs(specList, measures)
                             ) : (
                               <Line
                                 type="monotone"
-                                dataKey={isTape ? 'diffMm' : 'diffF'}
+                                dataKey={isBalance ? 'diffG' : isTape ? 'diffMm' : 'diffF'}
                                 stroke="#2563eb"
                                 strokeWidth={2}
                                 dot={(props) => {
                                   const { cx, cy, payload } = props
-                                  const value = isTape ? payload?.diffMm : payload?.diffF
-                                  const outOfControl = value > limit || value < -limit
+                                  const value = isBalance
+                                    ? payload?.diffG
+                                    : isTape
+                                      ? payload?.diffMm
+                                      : payload?.diffF
+                                  const outOfControl = isBalance
+                                    ? payload?.emp != null && (value > payload.emp || value < -payload.emp)
+                                    : value > limit || value < -limit
                                   return (
                                     <circle
                                       cx={cx}
                                       cy={cy}
-                                      r={outOfControl ? 5 : 3}
+                                      r={isBalance ? (outOfControl ? 6 : 4) : outOfControl ? 5 : 3}
                                       fill={outOfControl ? '#dc2626' : '#2563eb'}
                                     />
                                   )
@@ -5175,7 +6093,9 @@ applyMeasureSpecs(specList, measures)
                 </FormControl>
               )
             })()}
-            {(requiresComparisonReadings || isHydrometerMonthlyVerification) ? (
+            {(requiresComparisonReadings ||
+              isHydrometerMonthlyVerification ||
+              requiresKarlFischerVerification) ? (
               <Box
                 sx={{
                   border: '1px solid #e5e7eb',
@@ -5186,7 +6106,9 @@ applyMeasureSpecs(specList, measures)
                 }}
               >
                 <Typography variant="subtitle2" color="text.secondary">
-                  Comparacion contra patron
+                  {requiresKarlFischerVerification
+                    ? 'Estandarizacion del reactivo'
+                    : 'Comparacion contra patron'}
                 </Typography>
                 {isHydrometerMonthlyVerification ? (
                   <>
@@ -5403,32 +6325,311 @@ applyMeasureSpecs(specList, measures)
                     </Box>
                   </>
                 ) : (
-                  <FormControl size="small" fullWidth>
-                    <InputLabel id="reference-equipment-label">Equipo patron</InputLabel>
-                    <Select
-                      labelId="reference-equipment-label"
-                      label="Equipo patron"
-                      value={verificationForm.reference_equipment_id}
+                  !requiresKarlFischerVerification ? (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                        alignItems: 'center',
+                        mt: 0.75,
+                      }}
+                    >
+                      <FormControl size="small" fullWidth>
+                        <InputLabel id="reference-equipment-label">
+                          {requiresBalanceComparison ? 'Pesa patron' : 'Equipo patron'}
+                        </InputLabel>
+                        <Select
+                          labelId="reference-equipment-label"
+                          label={requiresBalanceComparison ? 'Pesa patron' : 'Equipo patron'}
+                          value={verificationForm.reference_equipment_id}
+                          onChange={(event) =>
+                            setVerificationForm((prev) => ({
+                              ...prev,
+                              reference_equipment_id: String(event.target.value || ''),
+                            }))
+                          }
+                        >
+                          {referenceEquipmentOptions.map((candidate) => (
+                            <MenuItem key={candidate.id} value={String(candidate.id)}>
+                              {candidate.serial} - {candidate.brand} {candidate.model}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                        {referenceEquipmentOptions.length === 0 ? (
+                          <FormHelperText>
+                            No hay equipos patron disponibles en este terminal.
+                          </FormHelperText>
+                        ) : null}
+                      </FormControl>
+                      {requiresBalanceComparison ? (
+                        <TextField
+                          label="Peso nominal"
+                          size="small"
+                          sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                          value={
+                            selectedReferenceEquipment
+                              ? `${selectedReferenceEquipment.nominal_mass_value ?? '-'} ${
+                                  selectedReferenceEquipment.nominal_mass_unit || 'g'
+                                }`
+                              : '-'
+                          }
+                          InputProps={{ readOnly: true }}
+                        />
+                      ) : (
+                        <Box />
+                      )}
+                    </Box>
+                  ) : null
+                )}
+                {requiresBalanceComparison ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1,
+                      gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                      alignItems: 'center',
+                    }}
+                  >
+                    <TextField
+                      label="Lectura balanza"
+                      type="number"
+                      size="small"
+                      sx={{ '& .MuiInputBase-root': { height: 40 } }}
+                      value={verificationForm.balance_reading_value}
                       onChange={(event) =>
                         setVerificationForm((prev) => ({
                           ...prev,
-                          reference_equipment_id: String(event.target.value || ''),
+                          balance_reading_value: event.target.value,
                         }))
                       }
+                    />
+                    <FormControl size="small" fullWidth sx={{ '& .MuiInputBase-root': { height: 40 } }}>
+                      <InputLabel id="balance-unit-label">Unidad balanza</InputLabel>
+                      <Select
+                        labelId="balance-unit-label"
+                        label="Unidad balanza"
+                        value={verificationForm.balance_unit || 'g'}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            balance_unit: String(event.target.value || 'g'),
+                          }))
+                        }
+                      >
+                        <MenuItem value="g">g</MenuItem>
+                        <MenuItem value="mg">mg</MenuItem>
+                      </Select>
+                    </FormControl>
+                    {(() => {
+                      if (!selectedReferenceEquipment) return null
+                      const underG = normalizeWeightToGrams(
+                        verificationForm.balance_reading_value,
+                        verificationForm.balance_unit || 'g'
+                      )
+                      const refG = normalizeWeightToGrams(
+                        selectedReferenceEquipment.nominal_mass_value,
+                        selectedReferenceEquipment.nominal_mass_unit || 'g'
+                      )
+                      if (underG === null || refG === null) {
+                        return (
+                          <Typography variant="caption" color="text.secondary">
+                            Diferencia: -
+                          </Typography>
+                        )
+                      }
+                      const emp =
+                        Number(selectedReferenceEquipment.emp_value) > 0
+                          ? Number(selectedReferenceEquipment.emp_value)
+                          : getWeightEmp(
+                              selectedReferenceEquipment.nominal_mass_value,
+                              selectedReferenceEquipment.weight_class
+                            )
+                      if (emp === null || emp === undefined) {
+                        return (
+                          <Typography variant="caption" color="text.secondary">
+                            EMP: -
+                          </Typography>
+                        )
+                      }
+                      const diff = refG - underG
+                      const ok = Math.abs(diff) <= emp
+                      return (
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: ok ? '#16a34a' : '#dc2626',
+                            fontWeight: 600,
+                            gridColumn: { sm: '1 / span 2' },
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Diferencia: {diff.toFixed(6)} g (EMP {emp.toFixed(6)} g) —{' '}
+                          {ok ? 'Cumple' : 'No cumple'}
+                        </Typography>
+                      )
+                    })()}
+                  </Box>
+                ) : null}
+                {requiresKarlFischerVerification ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1,
+                    }}
+                  >
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="kf-balance-label">Balanza analitica (trabajo)</InputLabel>
+                      <Select
+                        labelId="kf-balance-label"
+                        label="Balanza analitica (trabajo)"
+                        value={verificationForm.reference_equipment_id}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            reference_equipment_id: String(event.target.value || ''),
+                          }))
+                        }
+                      >
+                        {kfBalanceOptions.map((candidate) => (
+                          <MenuItem key={candidate.id} value={String(candidate.id)}>
+                            {candidate.serial} - {candidate.brand} {candidate.model}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      {kfBalanceOptions.length === 0 ? (
+                        <FormHelperText>
+                          No hay balanzas analiticas disponibles en este terminal.
+                        </FormHelperText>
+                      ) : null}
+                    </FormControl>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                        alignItems: 'center',
+                        mt: 0.75,
+                      }}
                     >
-                      {referenceEquipmentOptions.map((candidate) => (
-                        <MenuItem key={candidate.id} value={String(candidate.id)}>
-                          {candidate.serial} - {candidate.brand} {candidate.model}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {referenceEquipmentOptions.length === 0 ? (
-                      <FormHelperText>
-                        No hay equipos patron disponibles en este terminal.
-                      </FormHelperText>
-                    ) : null}
-                  </FormControl>
-                )}
+                      <TextField
+                        label="Peso 1 (mg)"
+                        type="number"
+                        size="small"
+                        value={verificationForm.kf_weight_1}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            kf_weight_1: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Volumen 1 (mL)"
+                        type="number"
+                        size="small"
+                        value={verificationForm.kf_volume_1}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            kf_volume_1: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Factor 1 (mg/mL)"
+                        size="small"
+                        value={(() => {
+                          const w = Number(verificationForm.kf_weight_1)
+                          const v = Number(verificationForm.kf_volume_1)
+                          if (!v || Number.isNaN(w) || Number.isNaN(v)) return ''
+                          return (w / v).toFixed(6)
+                        })()}
+                        InputProps={{ readOnly: true }}
+                      />
+                    </Box>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                        alignItems: 'center',
+                        mt: 1,
+                      }}
+                    >
+                      <TextField
+                        label="Peso 2 (mg)"
+                        type="number"
+                        size="small"
+                        value={verificationForm.kf_weight_2}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            kf_weight_2: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Volumen 2 (mL)"
+                        type="number"
+                        size="small"
+                        value={verificationForm.kf_volume_2}
+                        onChange={(event) =>
+                          setVerificationForm((prev) => ({
+                            ...prev,
+                            kf_volume_2: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="Factor 2 (mg/mL)"
+                        size="small"
+                        value={(() => {
+                          const w = Number(verificationForm.kf_weight_2)
+                          const v = Number(verificationForm.kf_volume_2)
+                          if (!v || Number.isNaN(w) || Number.isNaN(v)) return ''
+                          return (w / v).toFixed(6)
+                        })()}
+                        InputProps={{ readOnly: true }}
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      {(() => {
+                        const w1 = Number(verificationForm.kf_weight_1)
+                        const v1 = Number(verificationForm.kf_volume_1)
+                        const w2 = Number(verificationForm.kf_weight_2)
+                        const v2 = Number(verificationForm.kf_volume_2)
+                        if ([w1, v1, w2, v2].some((val) => Number.isNaN(val) || !val)) {
+                          return (
+                            <Typography variant="caption" color="text.secondary">
+                              Factor promedio: - | Error relativo: -
+                            </Typography>
+                          )
+                        }
+                        const f1 = w1 / v1
+                        const f2 = w2 / v2
+                        const avg = (f1 + f2) / 2
+                        const err = avg ? (Math.abs(f1 - f2) / avg) * 100 : 0
+                        const factorsOk = f1 >= 4.5 && f1 <= 5.5 && f2 >= 4.5 && f2 <= 5.5
+                        const relOk = err < 2
+                        const ok = factorsOk && relOk
+                        return (
+                          <>
+                            <Typography variant="caption" color="text.secondary">
+                              Factor promedio: {avg.toFixed(6)} mg/mL | Error relativo: {err.toFixed(3)}%
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: ok ? '#16a34a' : '#dc2626', fontWeight: 600 }}
+                            >
+                              {ok ? 'Cumple' : 'No cumple'}
+                            </Typography>
+                          </>
+                        )
+                      })()}
+                    </Box>
+                  </Box>
+                ) : null}
                 {!isHydrometerMonthlyVerification && requiresTapeComparison ? (
                   <>
                     <Box
@@ -5737,7 +6938,7 @@ applyMeasureSpecs(specList, measures)
                       })}
                     </Box>
                   </>
-                ) : !isHydrometerMonthlyVerification ? (
+                ) : !isHydrometerMonthlyVerification && requiresTemperatureComparison ? (
                   <>
                     <Box sx={{ display: 'grid', gap: 1 }}>
                       <Box
@@ -5874,7 +7075,11 @@ applyMeasureSpecs(specList, measures)
                     ? 'Se requiere inspeccion diaria aprobada en ambos equipos.'
                     : requiresTapeComparison
                       ? 'Se requieren inspecciones diarias aprobadas en ambos equipos. Criterio: |Diferencia| < 2 mm.'
-                      : 'Se requiere inspeccion diaria aprobada en ambos equipos y diferencia maxima de 0.5 F.'}
+                      : requiresBalanceComparison
+                        ? 'Se requiere inspeccion diaria aprobada en ambos equipos y diferencia dentro del error maximo permitido.'
+                        : requiresKarlFischerVerification
+                          ? 'Criterio: factores entre 4.5 y 5.5 y error relativo < 2%.'
+                        : 'Se requiere inspeccion diaria aprobada en ambos equipos y diferencia maxima de 0.5 F.'}
                 </Typography>
               </Box>
             ) : null}
@@ -5999,7 +7204,8 @@ applyMeasureSpecs(specList, measures)
                 !verificationForm.verification_type_id ||
                 (verificationItems.length === 0 &&
                   !requiresComparisonReadings &&
-                  !isHydrometerMonthlyVerification)
+                  !isHydrometerMonthlyVerification &&
+                  !requiresKarlFischerVerification)
               }
               onClick={async () => {
                 if (!verificationEquipment) return
@@ -6138,6 +7344,85 @@ applyMeasureSpecs(specList, measures)
                       return
                     }
                   }
+                } else if (requiresBalanceComparison) {
+                  if (!verificationForm.reference_equipment_id) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona la pesa patron.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (verificationForm.balance_reading_value === '') {
+                    setToast({
+                      open: true,
+                      message: 'Ingresa la lectura de la balanza.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (Number.isNaN(Number(verificationForm.balance_reading_value))) {
+                    setToast({
+                      open: true,
+                      message: 'La lectura de la balanza debe ser numerica.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (
+                    !selectedReferenceEquipment ||
+                    selectedReferenceEquipment.nominal_mass_value === null ||
+                    selectedReferenceEquipment.nominal_mass_value === undefined
+                  ) {
+                    setToast({
+                      open: true,
+                      message: 'La pesa patron no tiene peso nominal definido.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                } else if (requiresKarlFischerVerification) {
+                  if (!verificationForm.reference_equipment_id) {
+                    setToast({
+                      open: true,
+                      message: 'Selecciona la balanza analitica.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  const requiredFields = [
+                    verificationForm.kf_weight_1,
+                    verificationForm.kf_volume_1,
+                    verificationForm.kf_weight_2,
+                    verificationForm.kf_volume_2,
+                  ]
+                  if (requiredFields.some((value) => String(value).trim() === '')) {
+                    setToast({
+                      open: true,
+                      message: 'Completa peso y volumen para ambos ensayos.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (requiredFields.some((value) => Number.isNaN(Number(value)))) {
+                    setToast({
+                      open: true,
+                      message: 'Los valores deben ser numericos validos.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  if (
+                    Number(verificationForm.kf_volume_1) <= 0 ||
+                    Number(verificationForm.kf_volume_2) <= 0
+                  ) {
+                    setToast({
+                      open: true,
+                      message: 'El volumen debe ser mayor que cero.',
+                      severity: 'error',
+                    })
+                    return
+                  }
                 } else if (requiresTapeComparison) {
                   if (!verificationForm.reference_equipment_id) {
                     setToast({
@@ -6264,31 +7549,54 @@ applyMeasureSpecs(specList, measures)
                     canEditVerificationDate && verificationForm.verified_at
                       ? verificationForm.verified_at
                       : null,
-                  reference_equipment_id: requiresComparisonReadings || isHydrometerMonthlyVerification
+                  reference_equipment_id:
+                    requiresComparisonReadings ||
+                    isHydrometerMonthlyVerification ||
+                    requiresKarlFischerVerification
                     ? Number(verificationForm.reference_equipment_id)
                     : null,
+                  kf_weight_1: requiresKarlFischerVerification
+                    ? Number(verificationForm.kf_weight_1)
+                    : null,
+                  kf_volume_1: requiresKarlFischerVerification
+                    ? Number(verificationForm.kf_volume_1)
+                    : null,
+                  kf_weight_2: requiresKarlFischerVerification
+                    ? Number(verificationForm.kf_weight_2)
+                    : null,
+                  kf_volume_2: requiresKarlFischerVerification
+                    ? Number(verificationForm.kf_volume_2)
+                    : null,
                   reading_under_test_value:
-                    requiresTemperatureComparison && !isMonthlyVerification
-                      ? Number(verificationForm.reading_under_test_f)
+                    requiresBalanceComparison
+                      ? Number(verificationForm.balance_reading_value)
+                      : requiresTemperatureComparison && !isMonthlyVerification
+                        ? Number(verificationForm.reading_under_test_f)
+                        : isHydrometerMonthlyVerification
+                          ? Number(verificationForm.hydrometer_working_value)
+                          : null,
+                  reading_under_test_unit: requiresBalanceComparison
+                    ? verificationForm.balance_unit
+                    : requiresComparisonReadings
+                      ? verificationForm.reading_unit_under_test
                       : isHydrometerMonthlyVerification
-                        ? Number(verificationForm.hydrometer_working_value)
+                        ? 'api'
                       : null,
-                  reading_under_test_unit: requiresComparisonReadings
-                    ? verificationForm.reading_unit_under_test
-                    : isHydrometerMonthlyVerification
-                      ? 'api'
-                    : null,
                   reference_reading_value:
-                    requiresTemperatureComparison && !isMonthlyVerification
-                      ? Number(verificationForm.reference_reading_f)
+                    requiresBalanceComparison
+                      ? Number(selectedReferenceEquipment?.nominal_mass_value)
+                      : requiresTemperatureComparison && !isMonthlyVerification
+                        ? Number(verificationForm.reference_reading_f)
+                        : isHydrometerMonthlyVerification
+                          ? Number(verificationForm.hydrometer_reference_value)
+                          : null,
+                  reference_reading_unit: requiresBalanceComparison
+                    ? selectedReferenceEquipment?.nominal_mass_unit || 'g'
+                    : requiresComparisonReadings
+                      ? verificationForm.reading_unit_reference
                       : isHydrometerMonthlyVerification
-                        ? Number(verificationForm.hydrometer_reference_value)
+                        ? 'api'
                       : null,
-                  reference_reading_unit: requiresComparisonReadings
-                    ? verificationForm.reading_unit_reference
-                    : isHydrometerMonthlyVerification
-                      ? 'api'
-                    : null,
                   reading_under_test_high_value:
                     (requiresTemperatureComparison && isMonthlyVerification) || requiresTapeComparison
                       ? Number(verificationForm.reading_under_test_high_value)
@@ -6537,44 +7845,143 @@ applyMeasureSpecs(specList, measures)
                 }
               />
             </Box>
-            <Box
-              sx={{
-                border: '1px solid #e5e7eb',
-                borderRadius: 1,
-                p: 1.5,
-                display: 'grid',
-                gap: 1,
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography sx={{ fontWeight: 600 }}>Resultados de medicion</Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() =>
-                    setCalibrationResults((prev) => [
-                      ...prev,
-                      {
-                        point_label: '',
-                        reference_value: '',
-                        measured_value: '',
-                        unit: isHydrometerEquipment(calibrationEquipment) ? 'api' : '',
-                        error_value: '',
-                        tolerance_value: '',
-                        is_ok: '',
-                        notes: '',
-                      },
-                    ])
-                  }
+              {String(calibrationEquipment?.equipment_type?.name || '')
+                .trim()
+                .toLowerCase() !== 'balanza analitica' ? (
+                <Box
+                  sx={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 1,
+                    p: 1.5,
+                    display: 'grid',
+                    gap: 1,
+                  }}
                 >
-                  Agregar fila
-                </Button>
-              </Box>
-              {calibrationResults.length === 0 ? (
-                <Typography color="text.secondary">Sin resultados.</Typography>
-              ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography sx={{ fontWeight: 600 }}>Resultados de medicion</Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() =>
+                        setCalibrationResults((prev) => [
+                          ...prev,
+                          {
+                            point_label: '',
+                            reference_value: '',
+                            measured_value: '',
+                            unit: isHydrometerEquipment(calibrationEquipment)
+                              ? 'api'
+                              : isKarlFischerEquipment(calibrationEquipment)
+                                ? 'ml'
+                              : isWeightEquipmentType(calibrationEquipment?.equipment_type)
+                                ? 'g'
+                                : '',
+                            error_value: '',
+                            tolerance_value: '',
+                            volume_value: '',
+                            systematic_error: '',
+                            systematic_emp: '',
+                            random_error: '',
+                            random_emp: '',
+                            uncertainty_value: '',
+                            k_value: '',
+                            is_ok: '',
+                            notes: '',
+                          },
+                        ])
+                      }
+                    >
+                      Agregar fila
+                    </Button>
+                  </Box>
+                  {calibrationResults.length === 0 ? (
+                    <Typography color="text.secondary">Sin resultados.</Typography>
+                  ) : (
                 <Box sx={{ display: 'grid', gap: 1 }}>
-                  {isThermometerEquipment(calibrationEquipment) ? (
+                  {isWeightEquipmentType(calibrationEquipment?.equipment_type) ? (
+                    calibrationResults.map((row, index) => (
+                      <Box
+                        key={`cal-row-${index}`}
+                        sx={{
+                          display: 'grid',
+                          gap: 1,
+                          gridTemplateColumns: { xs: '1fr', md: '0.8fr 1.2fr 1fr 1fr auto' },
+                          alignItems: 'center',
+                        }}
+                      >
+                        <FormControl size="small">
+                          <InputLabel id={`cal-weight-unit-${index}`}>Unidad</InputLabel>
+                          <Select
+                            labelId={`cal-weight-unit-${index}`}
+                            label="Unidad"
+                            value={row.unit || 'g'}
+                            onChange={(event) =>
+                              setCalibrationResults((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === index ? { ...item, unit: event.target.value } : item
+                                )
+                              )
+                            }
+                          >
+                            <MenuItem value="g">g</MenuItem>
+                            <MenuItem value="mg">mg</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <TextField
+                          label="Punto"
+                          size="small"
+                          value={row.point_label}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index ? { ...item, point_label: event.target.value } : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Incertidumbre"
+                          size="small"
+                          type="number"
+                          value={row.error_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index ? { ...item, error_value: event.target.value } : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="k"
+                          size="small"
+                          type="number"
+                          value={row.tolerance_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, tolerance_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <IconButton
+                          size="small"
+                          aria-label="Eliminar fila"
+                          onClick={() =>
+                            setCalibrationResults((prev) =>
+                              prev.filter((_, idx) => idx !== index)
+                            )
+                          }
+                          sx={{ color: '#b91c1c' }}
+                        >
+                          <DeleteOutline fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))
+                  ) : isThermometerEquipment(calibrationEquipment) ? (
                     calibrationResults.map((row, index) => {
                       const refValue = Number(row.reference_value)
                       const ebcValue = Number(row.measured_value)
@@ -6825,6 +8232,167 @@ applyMeasureSpecs(specList, measures)
                         </IconButton>
                       </Box>
                     ))
+                  ) : isKarlFischerEquipment(calibrationEquipment) ? (
+                    calibrationResults.map((row, index) => (
+                      <Box
+                        key={`cal-row-${index}`}
+                        sx={{
+                          display: 'grid',
+                          gap: 1,
+                          gridTemplateColumns: {
+                            xs: '1fr',
+                            md: '0.8fr 0.9fr 1fr 1fr 1fr 1fr 1fr 1fr 0.8fr auto',
+                          },
+                          alignItems: 'center',
+                        }}
+                      >
+                        <FormControl size="small">
+                          <InputLabel id={`kf-unit-${index}`}>Unidad</InputLabel>
+                          <Select
+                            labelId={`kf-unit-${index}`}
+                            label="Unidad"
+                            value={row.unit || 'ml'}
+                            onChange={(event) =>
+                              setCalibrationResults((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === index ? { ...item, unit: event.target.value } : item
+                                )
+                              )
+                            }
+                          >
+                            <MenuItem value="ml">mL</MenuItem>
+                            <MenuItem value="l">L</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <TextField
+                          label="Punto"
+                          size="small"
+                          value={row.point_label}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index ? { ...item, point_label: event.target.value } : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Volumen calculado"
+                          size="small"
+                          type="number"
+                          value={row.volume_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, volume_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Error sistematico"
+                          size="small"
+                          type="number"
+                          value={row.systematic_error}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, systematic_error: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="EMP sistematico"
+                          size="small"
+                          type="number"
+                          value={row.systematic_emp}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, systematic_emp: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Error aleatorio"
+                          size="small"
+                          type="number"
+                          value={row.random_error}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, random_error: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="EMP aleatorio"
+                          size="small"
+                          type="number"
+                          value={row.random_emp}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, random_emp: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="Incertidumbre"
+                          size="small"
+                          type="number"
+                          value={row.uncertainty_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index
+                                  ? { ...item, uncertainty_value: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <TextField
+                          label="k"
+                          size="small"
+                          type="number"
+                          value={row.k_value}
+                          onChange={(event) =>
+                            setCalibrationResults((prev) =>
+                              prev.map((item, idx) =>
+                                idx === index ? { ...item, k_value: event.target.value } : item
+                              )
+                            )
+                          }
+                        />
+                        <IconButton
+                          size="small"
+                          aria-label="Eliminar fila"
+                          onClick={() =>
+                            setCalibrationResults((prev) =>
+                              prev.filter((_, idx) => idx !== index)
+                            )
+                          }
+                          sx={{ color: '#b91c1c' }}
+                        >
+                          <DeleteOutline fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))
                   ) : (
                     calibrationResults.map((row, index) => (
                       <Box
@@ -6946,9 +8514,24 @@ applyMeasureSpecs(specList, measures)
                       </Box>
                     ))
                   )}
+                  </Box>
+                )}
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    border: '1px dashed #e5e7eb',
+                    borderRadius: 1,
+                    p: 1.5,
+                    display: 'grid',
+                    gap: 1,
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 600 }}>
+                    Resultados de medicion (no requeridos por ahora)
+                  </Typography>
                 </Box>
               )}
-            </Box>
             <Box
               sx={{
                 display: 'grid',
@@ -7021,6 +8604,13 @@ applyMeasureSpecs(specList, measures)
                       String(row.unit || '').trim() ||
                       String(row.error_value || '').trim() ||
                       String(row.tolerance_value || '').trim() ||
+                      String(row.volume_value || '').trim() ||
+                      String(row.systematic_error || '').trim() ||
+                      String(row.systematic_emp || '').trim() ||
+                      String(row.random_error || '').trim() ||
+                      String(row.random_emp || '').trim() ||
+                      String(row.uncertainty_value || '').trim() ||
+                      String(row.k_value || '').trim() ||
                       String(row.notes || '').trim() ||
                       row.is_ok === 'true' ||
                       row.is_ok === 'false'
@@ -7045,6 +8635,34 @@ applyMeasureSpecs(specList, measures)
                       String(row.tolerance_value).trim() === ''
                         ? null
                         : Number(row.tolerance_value),
+                    volume_value:
+                      String(row.volume_value).trim() === ''
+                        ? null
+                        : Number(row.volume_value),
+                    systematic_error:
+                      String(row.systematic_error).trim() === ''
+                        ? null
+                        : Number(row.systematic_error),
+                    systematic_emp:
+                      String(row.systematic_emp).trim() === ''
+                        ? null
+                        : Number(row.systematic_emp),
+                    random_error:
+                      String(row.random_error).trim() === ''
+                        ? null
+                        : Number(row.random_error),
+                    random_emp:
+                      String(row.random_emp).trim() === ''
+                        ? null
+                        : Number(row.random_emp),
+                    uncertainty_value:
+                      String(row.uncertainty_value).trim() === ''
+                        ? null
+                        : Number(row.uncertainty_value),
+                    k_value:
+                      String(row.k_value).trim() === ''
+                        ? null
+                        : Number(row.k_value),
                     is_ok:
                       row.is_ok === 'true'
                         ? true

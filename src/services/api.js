@@ -1,14 +1,10 @@
 import { useAuthStore } from '../store/useAuthStore'
 
 const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
+let refreshInFlight = null
 
 const handleJson = async (response) => {
   const data = await response.json().catch(() => ({}))
-
-  if (response.status === 401 || response.status === 403) {
-    const { resetAuth } = useAuthStore.getState()
-    resetAuth()
-  }
 
   if (!response.ok) {
     const error = new Error(data.detail || 'Error en la solicitud.')
@@ -16,6 +12,60 @@ const handleJson = async (response) => {
     throw error
   }
   return data
+}
+
+const refreshAccessToken = async () => {
+  if (refreshInFlight) {
+    return refreshInFlight
+  }
+  refreshInFlight = (async () => {
+    const {
+      refreshToken,
+      setAccessToken,
+      setRefreshToken,
+      setTokenType,
+      resetAuth,
+    } = useAuthStore.getState()
+    if (!refreshToken) {
+      resetAuth()
+      return null
+    }
+    const response = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      resetAuth()
+      return null
+    }
+    setAccessToken(data.access_token || '')
+    setRefreshToken(data.refresh_token || '')
+    setTokenType(data.token_type || 'bearer')
+    return data.access_token || null
+  })()
+  try {
+    return await refreshInFlight
+  } finally {
+    refreshInFlight = null
+  }
+}
+
+const authFetch = async (url, options = {}) => {
+  const response = await fetch(url, options)
+  if (response.status !== 401 && response.status !== 403) {
+    return response
+  }
+  const newToken = await refreshAccessToken()
+  if (!newToken) {
+    return response
+  }
+  const nextHeaders = {
+    ...(options.headers || {}),
+    Authorization: `${useAuthStore.getState().tokenType || 'bearer'} ${newToken}`,
+  }
+  return fetch(url, { ...options, headers: nextHeaders })
 }
 
 const login = async ({ username, password }) => {
@@ -34,7 +84,7 @@ const login = async ({ username, password }) => {
 
 const logout = async ({ tokenType, accessToken }) => {
   if (!accessToken) return
-  await fetch(`${apiBaseUrl}/api/v1/auth/logout`, {
+  await authFetch(`${apiBaseUrl}/api/v1/auth/logout`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -48,7 +98,7 @@ const fetchUsers = async ({ tokenType, accessToken, isActive }) => {
   if (typeof isActive === 'boolean') {
     params.set('is_active', String(isActive))
   }
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/?${params.toString()}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/?${params.toString()}`, {
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
     },
@@ -57,7 +107,7 @@ const fetchUsers = async ({ tokenType, accessToken, isActive }) => {
 }
 
 const fetchCompanies = async ({ tokenType, accessToken }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/companies/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/companies/`, {
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
     },
@@ -66,7 +116,7 @@ const fetchCompanies = async ({ tokenType, accessToken }) => {
 }
 
 const fetchEquipmentTypes = async ({ tokenType, accessToken }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-types/?include=creator,verification_types`,
     {
       headers: {
@@ -78,7 +128,7 @@ const fetchEquipmentTypes = async ({ tokenType, accessToken }) => {
 }
 
 const fetchEquipmentTypeById = async ({ tokenType, accessToken, equipmentTypeId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}?include=creator,inspection_items,verification_types`,
     {
       headers: {
@@ -90,7 +140,7 @@ const fetchEquipmentTypeById = async ({ tokenType, accessToken, equipmentTypeId 
 }
 
 const fetchEquipments = async ({ tokenType, accessToken }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment/?include=equipment_type,terminal,owner_company,inspections,verifications,calibrations`,
     {
       headers: {
@@ -102,8 +152,44 @@ const fetchEquipments = async ({ tokenType, accessToken }) => {
 }
 
 const fetchEquipmentById = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment/${equipmentId}?include=equipment_type,terminal,owner_company,calibrations`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const fetchEquipmentTypeHistory = async ({ tokenType, accessToken, equipmentId }) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/equipment/${equipmentId}/type-history`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const fetchEquipmentTerminalHistory = async ({ tokenType, accessToken, equipmentId }) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/equipment/${equipmentId}/terminal-history`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const fetchEquipmentHistory = async ({ tokenType, accessToken, equipmentId }) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/equipment/${equipmentId}/history`,
     {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -118,7 +204,7 @@ const fetchEquipmentTypeInspectionItems = async ({
   accessToken,
   equipmentTypeId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}`,
     {
       headers: {
@@ -140,7 +226,7 @@ const fetchEquipmentTypeVerificationItems = async ({
     params.set('verification_type_id', String(verificationTypeId))
   }
   const query = params.toString() ? `?${params.toString()}` : ''
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verification-items/equipment-type/${equipmentTypeId}${query}`,
     {
       headers: {
@@ -156,7 +242,7 @@ const fetchEquipmentTypeVerifications = async ({
   accessToken,
   equipmentTypeId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verifications/equipment-type/${equipmentTypeId}`,
     {
       headers: {
@@ -175,7 +261,7 @@ const createEquipmentInspection = async ({
   replaceExisting = false,
 }) => {
   const query = replaceExisting ? '?replace_existing=true' : ''
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-inspections/equipment/${equipmentId}${query}`,
     {
       method: 'POST',
@@ -190,7 +276,7 @@ const createEquipmentInspection = async ({
 }
 
 const fetchEquipmentInspections = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-inspections/equipment/${equipmentId}`,
     {
       headers: {
@@ -207,7 +293,7 @@ const updateEquipmentInspection = async ({
   inspectionId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-inspections/${inspectionId}`,
     {
       method: 'PATCH',
@@ -229,7 +315,7 @@ const createEquipmentVerification = async ({
   replaceExisting = false,
 }) => {
   const query = replaceExisting ? '?replace_existing=true' : ''
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-verifications/equipment/${equipmentId}${query}`,
     {
       method: 'POST',
@@ -249,7 +335,7 @@ const createEquipmentCalibration = async ({
   equipmentId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-calibrations/equipment/${equipmentId}`,
     {
       method: 'POST',
@@ -264,7 +350,7 @@ const createEquipmentCalibration = async ({
 }
 
 const fetchEquipmentCalibrations = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-calibrations/equipment/${equipmentId}`,
     {
       headers: {
@@ -281,7 +367,7 @@ const updateEquipmentCalibration = async ({
   calibrationId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-calibrations/${calibrationId}`,
     {
       method: 'PATCH',
@@ -303,7 +389,7 @@ const uploadEquipmentCalibrationCertificate = async ({
 }) => {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-calibrations/${calibrationId}/certificate`,
     {
       method: 'POST',
@@ -322,7 +408,7 @@ const calculateHydrometerApi60f = async ({
   temp_obs_f,
   lectura_api,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/hydrometer/api60f`,
     {
       method: 'POST',
@@ -342,7 +428,7 @@ const updateEquipmentVerification = async ({
   verificationId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-verifications/${verificationId}`,
     {
       method: 'PATCH',
@@ -362,7 +448,7 @@ const createEquipmentTypeInspectionItem = async ({
   equipmentTypeId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}`,
     {
       method: 'POST',
@@ -382,7 +468,7 @@ const createEquipmentTypeVerification = async ({
   equipmentTypeId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verifications/equipment-type/${equipmentTypeId}`,
     {
       method: 'POST',
@@ -403,7 +489,7 @@ const updateEquipmentTypeVerification = async ({
   verificationTypeId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verifications/equipment-type/${equipmentTypeId}/${verificationTypeId}`,
     {
       method: 'PUT',
@@ -423,7 +509,7 @@ const deleteEquipmentTypeVerification = async ({
   equipmentTypeId,
   verificationTypeId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verifications/equipment-type/${equipmentTypeId}/${verificationTypeId}`,
     {
       method: 'DELETE',
@@ -441,7 +527,7 @@ const createEquipmentTypeInspectionItemsBulk = async ({
   equipmentTypeId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}/bulk`,
     {
       method: 'POST',
@@ -462,7 +548,7 @@ const updateEquipmentTypeInspectionItem = async ({
   itemId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}/${itemId}`,
     {
       method: 'PUT',
@@ -482,7 +568,7 @@ const deleteEquipmentTypeInspectionItem = async ({
   equipmentTypeId,
   itemId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}/${itemId}`,
     {
       method: 'DELETE',
@@ -495,7 +581,7 @@ const deleteEquipmentTypeInspectionItem = async ({
 }
 
 const createEquipmentType = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/equipment-types/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment-types/`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -507,7 +593,7 @@ const createEquipmentType = async ({ tokenType, accessToken, payload }) => {
 }
 
 const createEquipment = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/equipment/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment/`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -519,7 +605,7 @@ const createEquipment = async ({ tokenType, accessToken, payload }) => {
 }
 
 const updateEquipment = async ({ tokenType, accessToken, equipmentId, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -531,7 +617,7 @@ const updateEquipment = async ({ tokenType, accessToken, equipmentId, payload })
 }
 
 const deleteEquipment = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -546,7 +632,7 @@ const updateEquipmentType = async ({
   equipmentTypeId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`,
     {
       method: 'PUT',
@@ -561,7 +647,7 @@ const updateEquipmentType = async ({
 }
 
 const deleteEquipmentType = async ({ tokenType, accessToken, equipmentTypeId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`,
     {
       method: 'DELETE',
@@ -574,7 +660,7 @@ const deleteEquipmentType = async ({ tokenType, accessToken, equipmentTypeId }) 
 }
 
 const fetchCompanyBlocks = async ({ tokenType, accessToken }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-blocks/?include=company`,
     {
       headers: {
@@ -591,7 +677,7 @@ const fetchCompanyBlockById = async ({
   blockId,
   companyId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-blocks/${blockId}?include=company&company_id=${companyId}`,
     {
       headers: {
@@ -603,7 +689,7 @@ const fetchCompanyBlockById = async ({
 }
 
 const createCompanyBlock = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/company-blocks/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-blocks/`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -615,7 +701,7 @@ const createCompanyBlock = async ({ tokenType, accessToken, payload }) => {
 }
 
 const updateCompanyBlock = async ({ tokenType, accessToken, blockId, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/company-blocks/${blockId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-blocks/${blockId}`, {
     method: 'PUT',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -627,7 +713,7 @@ const updateCompanyBlock = async ({ tokenType, accessToken, blockId, payload }) 
 }
 
 const deleteCompanyBlock = async ({ tokenType, accessToken, blockId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/company-blocks/${blockId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-blocks/${blockId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -637,7 +723,7 @@ const deleteCompanyBlock = async ({ tokenType, accessToken, blockId }) => {
 }
 
 const fetchCompanyTerminals = async ({ tokenType, accessToken }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-terminals/?include=block,owner_company,admin_company`,
     {
       headers: {
@@ -654,7 +740,7 @@ const fetchCompanyTerminalById = async ({
   terminalId,
   ownerCompanyId,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-terminals/${terminalId}?include=block,owner_company,admin_company&owner_company_id=${ownerCompanyId}`,
     {
       headers: {
@@ -666,7 +752,7 @@ const fetchCompanyTerminalById = async ({
 }
 
 const createCompanyTerminal = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/company-terminals/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-terminals/`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -683,7 +769,7 @@ const updateCompanyTerminal = async ({
   terminalId,
   payload,
 }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-terminals/${terminalId}`,
     {
       method: 'PUT',
@@ -698,7 +784,7 @@ const updateCompanyTerminal = async ({
 }
 
 const deleteCompanyTerminal = async ({ tokenType, accessToken, terminalId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-terminals/${terminalId}`,
     {
       method: 'DELETE',
@@ -710,8 +796,108 @@ const deleteCompanyTerminal = async ({ tokenType, accessToken, terminalId }) => 
   return handleJson(response)
 }
 
+const fetchExternalAnalysisTypes = async ({ tokenType, accessToken }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/external-analyses/types`, {
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
+  return handleJson(response)
+}
+
+const fetchExternalAnalysesByTerminal = async ({ tokenType, accessToken, terminalId }) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/terminal/${terminalId}`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const upsertExternalAnalysisTerminal = async ({
+  tokenType,
+  accessToken,
+  terminalId,
+  payload,
+}) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/terminal/${terminalId}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  return handleJson(response)
+}
+
+const createExternalAnalysisRecord = async ({
+  tokenType,
+  accessToken,
+  terminalId,
+  payload,
+}) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/records/terminal/${terminalId}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  return handleJson(response)
+}
+
+const fetchExternalAnalysisRecords = async ({
+  tokenType,
+  accessToken,
+  terminalId,
+  analysisTypeId,
+}) => {
+  const query = analysisTypeId ? `?analysis_type_id=${analysisTypeId}` : ''
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/records/terminal/${terminalId}${query}`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
+const uploadExternalAnalysisReport = async ({
+  tokenType,
+  accessToken,
+  recordId,
+  file,
+}) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/records/${recordId}/report`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+      body: formData,
+    }
+  )
+  return handleJson(response)
+}
+
 const createUser = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -725,7 +911,7 @@ const createUser = async ({ tokenType, accessToken, payload }) => {
 const uploadUserPhoto = async ({ tokenType, accessToken, userId, file }) => {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/${userId}/photo`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/${userId}/photo`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -738,7 +924,7 @@ const uploadUserPhoto = async ({ tokenType, accessToken, userId, file }) => {
 const uploadMyPhoto = async ({ tokenType, accessToken, file }) => {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/me/photo`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/me/photo`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -749,7 +935,7 @@ const uploadMyPhoto = async ({ tokenType, accessToken, file }) => {
 }
 
 const updateUser = async ({ tokenType, accessToken, userId, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/${userId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/${userId}`, {
     method: 'PUT',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -761,7 +947,7 @@ const updateUser = async ({ tokenType, accessToken, userId, payload }) => {
 }
 
 const fetchUserById = async ({ tokenType, accessToken, userId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/users/${userId}?include=company,terminals`,
     {
       headers: {
@@ -773,7 +959,7 @@ const fetchUserById = async ({ tokenType, accessToken, userId }) => {
 }
 
 const deleteUser = async ({ tokenType, accessToken, userId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/${userId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/${userId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -783,7 +969,7 @@ const deleteUser = async ({ tokenType, accessToken, userId }) => {
 }
 
 const fetchCurrentUser = async ({ tokenType, accessToken }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/me?include=company,terminals`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/me?include=company,terminals`, {
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
     },
@@ -792,7 +978,7 @@ const fetchCurrentUser = async ({ tokenType, accessToken }) => {
 }
 
 const updateMe = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/me`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/me`, {
     method: 'PUT',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -804,7 +990,7 @@ const updateMe = async ({ tokenType, accessToken, payload }) => {
 }
 
 const updateMyPassword = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/users/me/password`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/users/me/password`, {
     method: 'PUT',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -819,7 +1005,7 @@ const updateMyPassword = async ({ tokenType, accessToken, payload }) => {
 }
 
 const createCompany = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/companies/`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/companies/`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -831,7 +1017,7 @@ const createCompany = async ({ tokenType, accessToken, payload }) => {
 }
 
 const updateCompany = async ({ tokenType, accessToken, companyId, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
     method: 'PUT',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -843,7 +1029,7 @@ const updateCompany = async ({ tokenType, accessToken, companyId, payload }) => 
 }
 
 const deleteCompany = async ({ tokenType, accessToken, companyId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -853,7 +1039,7 @@ const deleteCompany = async ({ tokenType, accessToken, companyId }) => {
 }
 
 const fetchCompanyById = async ({ tokenType, accessToken, companyId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/companies/${companyId}`, {
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
     },
@@ -862,7 +1048,7 @@ const fetchCompanyById = async ({ tokenType, accessToken, companyId }) => {
 }
 
 const fetchSamplesByTerminal = async ({ tokenType, accessToken, terminalId }) => {
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/v1/samples/terminal/${terminalId}`,
     {
       headers: {
@@ -874,7 +1060,7 @@ const fetchSamplesByTerminal = async ({ tokenType, accessToken, terminalId }) =>
 }
 
 const createSample = async ({ tokenType, accessToken, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/samples`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/samples`, {
     method: 'POST',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -886,7 +1072,7 @@ const createSample = async ({ tokenType, accessToken, payload }) => {
 }
 
 const updateSample = async ({ tokenType, accessToken, sampleId, payload }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -898,7 +1084,7 @@ const updateSample = async ({ tokenType, accessToken, sampleId, payload }) => {
 }
 
 const deleteSample = async ({ tokenType, accessToken, sampleId }) => {
-  const response = await fetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/samples/${sampleId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `${tokenType || 'bearer'} ${accessToken}`,
@@ -946,6 +1132,9 @@ export {
   fetchEquipmentTypeById,
   fetchEquipments,
   fetchEquipmentById,
+  fetchEquipmentTypeHistory,
+  fetchEquipmentTerminalHistory,
+  fetchEquipmentHistory,
   fetchEquipmentTypeInspectionItems,
   fetchEquipmentTypeVerifications,
   fetchEquipmentTypeVerificationItems,
@@ -972,4 +1161,10 @@ export {
   deleteEquipment,
   updateEquipmentType,
   deleteEquipmentType,
+  fetchExternalAnalysisTypes,
+  fetchExternalAnalysesByTerminal,
+  upsertExternalAnalysisTerminal,
+  createExternalAnalysisRecord,
+  fetchExternalAnalysisRecords,
+  uploadExternalAnalysisReport,
 }
