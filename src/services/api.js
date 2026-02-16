@@ -329,6 +329,18 @@ const createEquipmentVerification = async ({
   return handleJson(response)
 }
 
+const fetchEquipmentVerifications = async ({ tokenType, accessToken, equipmentId }) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/equipment-verifications/equipment/${equipmentId}`,
+    {
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
 const createEquipmentCalibration = async ({
   tokenType,
   accessToken,
@@ -1140,6 +1152,7 @@ export {
   fetchEquipmentTypeVerificationItems,
   createEquipmentInspection,
   createEquipmentVerification,
+  fetchEquipmentVerifications,
   createEquipmentCalibration,
   fetchEquipmentInspections,
   fetchEquipmentCalibrations,

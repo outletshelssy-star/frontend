@@ -155,10 +155,12 @@ const EquipmentTypesTable = ({
         roleFilter === 'all' ? true : item.role === roleFilter
       const name = String(item.name || '').toLowerCase()
       const role = String(item.role || '').toLowerCase()
+      const labLabel = item.is_lab ? 'laboratorio' : 'campo'
       const matchesQuery =
         !normalized ||
         name.includes(normalized) ||
-        role.includes(normalized)
+        role.includes(normalized) ||
+        labLabel.includes(normalized)
       return matchesStatus && matchesRole && matchesQuery
     })
   }, [equipmentTypes, query, statusFilter, roleFilter])
@@ -176,6 +178,8 @@ const EquipmentTypesTable = ({
           return item.maintenance_days ?? 0
         case 'inspection':
           return item.inspection_days ?? 0
+        case 'lab':
+          return item.is_lab ? 'laboratorio' : 'campo'
         case 'status':
           return item.is_active ? 'active' : 'inactive'
         default:
@@ -1156,14 +1160,13 @@ const EquipmentTypesTable = ({
                           </TableCell>
                           <TableCell align="center">
                             <TableSortLabel
-                              active={sortBy === 'inspection'}
-                              direction={sortBy === 'inspection' ? sortDir : 'asc'}
-                              onClick={() => handleSort('inspection')}
+                              active={sortBy === 'lab'}
+                              direction={sortBy === 'lab' ? sortDir : 'asc'}
+                              onClick={() => handleSort('lab')}
                             >
-                              Inspeccion
+                              Laboratorio
                             </TableSortLabel>
                           </TableCell>
-                          <TableCell align="center">Verificaciones</TableCell>
                           <TableCell align="center">
                             <TableSortLabel
                               active={sortBy === 'calibration'}
@@ -1182,6 +1185,16 @@ const EquipmentTypesTable = ({
                               Mantenimiento
                             </TableSortLabel>
                           </TableCell>
+                          <TableCell align="center">
+                            <TableSortLabel
+                              active={sortBy === 'inspection'}
+                              direction={sortBy === 'inspection' ? sortDir : 'asc'}
+                              onClick={() => handleSort('inspection')}
+                            >
+                              Inspeccion
+                            </TableSortLabel>
+                          </TableCell>
+                          <TableCell align="center">Verificaciones</TableCell>
                           <TableCell align="center">
                             <TableSortLabel
                               active={sortBy === 'status'}
@@ -1220,16 +1233,19 @@ const EquipmentTypesTable = ({
                               </Box>
                             </TableCell>
                             <TableCell align="center">
-                              {renderDaysWithUnitLower(item.inspection_days)}
-                            </TableCell>
-                            <TableCell align="center">
-                              {renderVerificationTypesSummary(item.verification_types)}
+                              {item.is_lab ? 'Laboratorio' : 'Campo'}
                             </TableCell>
                             <TableCell align="center">
                               {renderDaysWithUnitLower(item.calibration_days)}
                             </TableCell>
                             <TableCell align="center">
                               {renderDaysWithUnitLower(item.maintenance_days)}
+                            </TableCell>
+                            <TableCell align="center">
+                              {renderDaysWithUnitLower(item.inspection_days)}
+                            </TableCell>
+                            <TableCell align="center">
+                              {renderVerificationTypesSummary(item.verification_types)}
                             </TableCell>
                             <TableCell align="center">{renderStatusBadge(item.is_active)}</TableCell>
                             <TableCell align="center">
@@ -1294,6 +1310,7 @@ const EquipmentTypesTable = ({
                         >
                           <MenuItem value={5}>5</MenuItem>
                           <MenuItem value={10}>10</MenuItem>
+                          <MenuItem value={15}>15</MenuItem>
                           <MenuItem value={20}>20</MenuItem>
                         </Select>
                       </FormControl>

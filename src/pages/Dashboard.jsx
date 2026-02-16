@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Typography } from '@mui/material'
 import { useAuthStore } from '../store/useAuthStore'
 import { useUsersStore } from '../store/useUsersStore'
@@ -26,6 +26,7 @@ import EquipmentTypesTable from '../components/EquipmentTypesTable'
 import EquipmentsTable from '../components/EquipmentsTable'
 import SamplesTable from '../components/SamplesTable'
 import ExternalAnalysesTable from '../components/ExternalAnalysesTable'
+import PruebaPage from '../components/PruebaPage'
 
 const DashBoard = () => {
   const {
@@ -72,6 +73,7 @@ const DashBoard = () => {
   const [equipmentsError, setEquipmentsError] = useState('')
   const [isEquipmentsLoading, setIsEquipmentsLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
+  const lastUserIdRef = useRef(null)
 
   const handleLogout = async () => {
     try {
@@ -185,24 +187,26 @@ const DashBoard = () => {
   }, [accessToken, loadCurrentUser])
 
   useEffect(() => {
+    if (!currentUser?.id) return
+    if (lastUserIdRef.current === currentUser.id) return
+    lastUserIdRef.current = currentUser.id
+    const userRole = String(currentUser.user_type || '').toLowerCase()
+    setActiveSection(userRole === 'visitor' ? 'profile' : 'dashboard')
+  }, [currentUser, setActiveSection])
+
+  useEffect(() => {
     if (!accessToken) return
     switch (activeSection) {
       case 'dashboard':
         if (canSeeUsers) {
           loadUsers()
         }
+        loadEquipments()
         break
       case 'users':
         if (canSeeUsers) {
           loadUsers()
         }
-        break
-      case 'companies':
-        loadCompanies()
-        break
-      case 'blocks':
-        loadCompanies()
-        loadBlocks()
         break
       case 'terminals':
         loadCompanies()
@@ -223,6 +227,12 @@ const DashBoard = () => {
         loadEquipments()
         break
       case 'external-analyses':
+        loadTerminals()
+        loadCompanies()
+        break
+      case 'prueba':
+        loadCompanies()
+        loadBlocks()
         loadTerminals()
         break
       case 'profile':
@@ -248,6 +258,8 @@ const DashBoard = () => {
             username={username}
             usersCount={users.length}
             isUsersLoading={isUsersLoading}
+            equipments={equipments}
+            isEquipmentsLoading={isEquipmentsLoading}
             onLogout={handleLogout}
           />
         )
@@ -275,29 +287,6 @@ const DashBoard = () => {
             onUserCreated={loadUsers}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
-          />
-        )
-      case 'companies':
-        return (
-          <CompaniesTable
-            companies={companies}
-            companiesError={companiesError}
-            isCompaniesLoading={isCompaniesLoading}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onCompanyChanged={loadCompanies}
-          />
-        )
-      case 'blocks':
-        return (
-          <CompanyBlocksTable
-            blocks={blocks}
-            blocksError={blocksError}
-            isBlocksLoading={isBlocksLoading}
-            companies={companies}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onBlockChanged={loadBlocks}
           />
         )
       case 'terminals':
@@ -362,8 +351,29 @@ const DashBoard = () => {
         return (
           <ExternalAnalysesTable
             terminals={terminals}
+            companies={companies}
+            currentUser={currentUser}
             tokenType={tokenType}
             accessToken={accessToken}
+          />
+        )
+      case 'prueba':
+        return (
+          <PruebaPage
+            companies={companies}
+            companiesError={companiesError}
+            isCompaniesLoading={isCompaniesLoading}
+            blocks={blocks}
+            blocksError={blocksError}
+            isBlocksLoading={isBlocksLoading}
+            terminals={terminals}
+            terminalsError={terminalsError}
+            isTerminalsLoading={isTerminalsLoading}
+            tokenType={tokenType}
+            accessToken={accessToken}
+            onCompanyChanged={loadCompanies}
+            onBlockChanged={loadBlocks}
+            onTerminalChanged={loadTerminals}
           />
         )
       case 'profile':

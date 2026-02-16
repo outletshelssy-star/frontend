@@ -24,7 +24,7 @@ import {
   Typography,
   Paper,
 } from '@mui/material'
-import { FilterAltOff } from '@mui/icons-material'
+import { Cancel, CheckCircle, FilterAltOff, WarningAmber } from '@mui/icons-material'
 import {
   createExternalAnalysisRecord,
   fetchExternalAnalysesByTerminal,
@@ -32,7 +32,13 @@ import {
   uploadExternalAnalysisReport,
 } from '../services/api'
 
-const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
+const ExternalAnalysesTable = ({
+  terminals,
+  companies,
+  currentUser,
+  tokenType,
+  accessToken,
+}) => {
   const [selectedTerminalId, setSelectedTerminalId] = useState('')
   const [analyses, setAnalyses] = useState([])
   const [records, setRecords] = useState([])
@@ -44,6 +50,7 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
   const [form, setForm] = useState({
     terminal_id: '',
     analysis_type_id: '',
+    analysis_company_id: '',
     performed_at: '',
     report_number: '',
     result_value: '',
@@ -63,6 +70,11 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
     () => (Array.isArray(terminals) ? terminals : []),
     [terminals]
   )
+  const companyOptions = useMemo(
+    () => (Array.isArray(companies) ? companies : []),
+    [companies]
+  )
+  const isVisitor = String(currentUser?.user_type || '').toLowerCase() === 'visitor'
 
   const activeAnalyses = useMemo(
     () => analyses.filter((item) => item.is_active),
@@ -125,11 +137,38 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
     return date.toLocaleDateString()
   }
 
+  const getDueStatus = (analysis) => {
+    const nextDate = analysis?.next_due_at ? new Date(analysis.next_due_at) : null
+    if (!nextDate || Number.isNaN(nextDate.getTime())) {
+      return { label: '-', color: 'text.secondary', status: 'none' }
+    }
+    const now = new Date()
+    const due = nextDate.getTime()
+    const nowMs = now.getTime()
+    if (due < nowMs) {
+      return { label: formatDate(nextDate), color: '#dc2626', status: 'overdue' }
+    }
+    const frequencyDays =
+      analysis?.frequency_days && analysis.frequency_days > 0
+        ? analysis.frequency_days
+        : null
+    if (!frequencyDays) {
+      return { label: formatDate(nextDate), color: '#16a34a', status: 'ok' }
+    }
+    const msToDue = due - nowMs
+    const warnThresholdMs = frequencyDays * 0.15 * 24 * 60 * 60 * 1000
+    if (msToDue <= warnThresholdMs) {
+      return { label: formatDate(nextDate), color: '#ca8a04', status: 'warning' }
+    }
+    return { label: formatDate(nextDate), color: '#16a34a', status: 'ok' }
+  }
+
   const openCreate = () => {
     const defaultType = activeAnalyses[0]?.analysis_type_id
     setForm({
       terminal_id: selectedTerminalId ? String(selectedTerminalId) : '',
       analysis_type_id: defaultType ? String(defaultType) : '',
+      analysis_company_id: '',
       performed_at: '',
       report_number: '',
       result_value: '',
@@ -168,6 +207,8 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
           result_uncertainty:
             form.result_uncertainty === '' ? null : Number(form.result_uncertainty),
           method: form.method?.trim() || null,
+          analysis_company_id:
+            form.analysis_company_id === '' ? null : Number(form.analysis_company_id),
           notes: form.notes?.trim() || null,
         },
       })
@@ -204,13 +245,37 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
     )
     if (!selected) return
     const name = String(selected.analysis_type_name || '').toLowerCase()
-    if (name === 'sedimentos') {
-      setForm((prev) => ({
-        ...prev,
-        result_unit: prev.result_unit || '% masa',
-        method: prev.method || 'ASTM D473-22',
-      }))
+    const defaultMethods = {
+      sedimentos: 'ASTM D473-22',
+      azufre: 'ASTM D4294-21',
     }
+    const defaultResults = {
+      assay: { result_value: 1, result_uncertainty: 1 },
+      cromatografia: { result_value: 1, result_uncertainty: 1 },
+    }
+    const nextDefault = defaultMethods[name]
+    const nextResults = defaultResults[name]
+    setForm((prev) => {
+      const shouldClearMethod =
+        !nextDefault && Object.values(defaultMethods).includes(prev.method || '')
+      return {
+        ...prev,
+        result_unit:
+          name === 'sedimentos' || name === 'azufre'
+            ? prev.result_unit || '% masa'
+            : prev.result_unit,
+        method: nextDefault || (shouldClearMethod ? '' : prev.method),
+        result_value:
+          nextResults && (prev.result_value === '' || prev.result_value === null)
+            ? nextResults.result_value
+            : prev.result_value,
+        result_uncertainty:
+          nextResults &&
+          (prev.result_uncertainty === '' || prev.result_uncertainty === null)
+            ? nextResults.result_uncertainty
+            : prev.result_uncertainty,
+      }
+    })
   }, [form.analysis_type_id, analyses])
 
   return (
@@ -227,13 +292,15 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
           Analisis externos
         </Typography>
-        <Button
-          variant="contained"
-          onClick={openCreate}
-          disabled={!selectedTerminalId || activeAnalyses.length === 0}
-        >
-          Registrar analisis
-        </Button>
+        {isVisitor ? null : (
+          <Button
+            variant="contained"
+            onClick={openCreate}
+            disabled={!selectedTerminalId || activeAnalyses.length === 0}
+          >
+            Registrar analisis
+          </Button>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -317,10 +384,26 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
                 Sin analisis configurados para este terminal.
               </Typography>
             ) : (
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
+              <TableContainer
+                component={Paper}
+                elevation={0}
+                sx={{
+                  borderRadius: 2,
+                  border: '1px solid #e5e7eb',
+                  background: '#f9fafb',
+                }}
+              >
+                <Table size="small" stickyHeader>
                   <TableHead>
-                    <TableRow>
+                    <TableRow
+                      sx={{
+                        '& th': {
+                          backgroundColor: '#eef2ff',
+                          color: '#4338ca',
+                          fontWeight: 700,
+                        },
+                      }}
+                    >
                       <TableCell>Analisis</TableCell>
                       <TableCell>Frecuencia (dias)</TableCell>
                       <TableCell>Ultimo</TableCell>
@@ -334,7 +417,29 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
                         <TableCell>{analysis.analysis_type_name}</TableCell>
                         <TableCell>{analysis.frequency_days ?? '-'}</TableCell>
                         <TableCell>{formatDate(analysis.last_performed_at)}</TableCell>
-                        <TableCell>{formatDate(analysis.next_due_at)}</TableCell>
+                        {(() => {
+                          const status = getDueStatus(analysis)
+                          const iconMap = {
+                            ok: <CheckCircle fontSize="small" />,
+                            overdue: <Cancel fontSize="small" />,
+                            warning: <WarningAmber fontSize="small" />,
+                          }
+                          const icon = iconMap[status.status] || null
+                          return (
+                            <TableCell
+                              sx={{
+                                color: status.color,
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                              }}
+                            >
+                              {icon}
+                              {status.label}
+                            </TableCell>
+                          )
+                        })()}
                         <TableCell>{analysis.is_active ? 'Activo' : 'Inactivo'}</TableCell>
                       </TableRow>
                     ))}
@@ -350,56 +455,70 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
             {records.length === 0 ? (
               <Typography color="text.secondary">Sin registros.</Typography>
             ) : (
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
+              <TableContainer
+                component={Paper}
+                elevation={0}
+                sx={{
+                  borderRadius: 2,
+                  border: '1px solid #e5e7eb',
+                  background: '#f9fafb',
+                }}
+              >
+                <Table size="small" stickyHeader>
                   <TableHead>
-                    <TableRow>
-                      <TableCell>Analisis</TableCell>
+                    <TableRow
+                      sx={{
+                        '& th': {
+                          backgroundColor: '#eef2ff',
+                          color: '#4338ca',
+                          fontWeight: 700,
+                        },
+                      }}
+                    >
                       <TableCell>Fecha</TableCell>
-                  <TableCell>Observaciones</TableCell>
-                  <TableCell>No. informe</TableCell>
-                  <TableCell>PDF</TableCell>
-                  <TableCell>Resultado</TableCell>
-                  <TableCell>Unidad</TableCell>
-                  <TableCell>Incertidumbre</TableCell>
-                  <TableCell>Metodo</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {records.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell>{record.analysis_type_name}</TableCell>
-                    <TableCell>{formatDate(record.performed_at)}</TableCell>
-                    <TableCell>{record.notes || '-'}</TableCell>
-                    <TableCell>{record.report_number || '-'}</TableCell>
-                    <TableCell>
-                      {record.report_pdf_url ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          component="a"
-                          href={record.report_pdf_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Ver PDF
-                        </Button>
-                      ) : (
-                        '-'
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {record.result_value ?? '-'}
-                    </TableCell>
-                    <TableCell>{record.result_unit || '-'}</TableCell>
-                    <TableCell>
-                      {record.result_uncertainty ?? '-'}
-                    </TableCell>
-                    <TableCell>{record.method || '-'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      <TableCell>Empresa</TableCell>
+                      <TableCell>Analisis</TableCell>
+                      <TableCell>Metodo</TableCell>
+                      <TableCell>No. informe</TableCell>
+                      <TableCell>Resultado</TableCell>
+                      <TableCell>Unidad</TableCell>
+                      <TableCell>Incertidumbre</TableCell>
+                      <TableCell>PDF</TableCell>
+                      <TableCell>Observaciones</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {records.map((record) => (
+                      <TableRow key={record.id}>
+                        <TableCell>{formatDate(record.performed_at)}</TableCell>
+                        <TableCell>{record.analysis_company_name || '-'}</TableCell>
+                        <TableCell>{record.analysis_type_name}</TableCell>
+                        <TableCell>{record.method || '-'}</TableCell>
+                        <TableCell>{record.report_number || '-'}</TableCell>
+                        <TableCell>{record.result_value ?? '-'}</TableCell>
+                        <TableCell>{record.result_unit || '-'}</TableCell>
+                        <TableCell>{record.result_uncertainty ?? '-'}</TableCell>
+                        <TableCell>
+                          {record.report_pdf_url ? (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              component="a"
+                              href={record.report_pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Ver PDF
+                            </Button>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell>{record.notes || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </TableContainer>
             )}
           </Box>
@@ -408,8 +527,19 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
 
       <Dialog open={isCreateOpen} onClose={() => setIsCreateOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Registrar analisis externo</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 1 }}>
-          <FormControl>
+      <DialogContent sx={{ display: 'grid', gap: 2, pt: 2, overflow: 'visible' }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+          }}
+        >
+          <FormControl
+            sx={{
+              '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+            }}
+          >
             <InputLabel id="external-modal-terminal-label">Terminal</InputLabel>
             <Select
               labelId="external-modal-terminal-label"
@@ -429,7 +559,28 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
               ))}
             </Select>
           </FormControl>
-          <FormControl>
+          <TextField
+            label="Fecha"
+            type="date"
+            value={form.performed_at}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, performed_at: event.target.value }))
+            }
+            InputLabelProps={{ shrink: true }}
+          />
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+          }}
+        >
+          <FormControl
+            sx={{
+              '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+            }}
+          >
             <InputLabel id="external-analysis-label">Analisis</InputLabel>
             <Select
               labelId="external-analysis-label"
@@ -453,22 +604,53 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
             </Select>
           </FormControl>
           <TextField
-            label="Fecha"
-            type="date"
-            value={form.performed_at}
+            label="Metodo"
+            value={form.method}
             onChange={(event) =>
-              setForm((prev) => ({ ...prev, performed_at: event.target.value }))
-            }
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label="Numero de informe"
-            value={form.report_number}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, report_number: event.target.value }))
+              setForm((prev) => ({ ...prev, method: event.target.value }))
             }
           />
-          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: '1fr 140px' }}>
+        </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            }}
+          >
+            <FormControl
+              sx={{
+                '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+              }}
+            >
+              <InputLabel id="external-analysis-company-label">Empresa</InputLabel>
+              <Select
+                labelId="external-analysis-company-label"
+                label="Empresa"
+                value={form.analysis_company_id}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    analysis_company_id: String(event.target.value || ''),
+                  }))
+                }
+              >
+                {companyOptions.map((company) => (
+                  <MenuItem key={company.id} value={String(company.id)}>
+                    {company.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Numero de informe"
+              value={form.report_number}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, report_number: event.target.value }))
+              }
+            />
+          </Box>
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: '2fr 1fr 1fr' }}>
             <TextField
               label="Resultado"
               type="number"
@@ -484,22 +666,15 @@ const ExternalAnalysesTable = ({ terminals, tokenType, accessToken }) => {
                 setForm((prev) => ({ ...prev, result_unit: event.target.value }))
               }
             />
+            <TextField
+              label="Incertidumbre"
+              type="number"
+              value={form.result_uncertainty}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, result_uncertainty: event.target.value }))
+              }
+            />
           </Box>
-          <TextField
-            label="Incertidumbre"
-            type="number"
-            value={form.result_uncertainty}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, result_uncertainty: event.target.value }))
-            }
-          />
-          <TextField
-            label="Metodo"
-            value={form.method}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, method: event.target.value }))
-            }
-          />
           <Button variant="outlined" component="label">
             {reportFile ? `PDF: ${reportFile.name}` : 'Subir informe (PDF)'}
             <input

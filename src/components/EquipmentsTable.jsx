@@ -175,6 +175,8 @@ const EquipmentsTable = ({
     notes: '',
   })
   const [calibrationResults, setCalibrationResults] = useState([])
+  const [calibrationResultsTemp, setCalibrationResultsTemp] = useState([])
+  const [calibrationResultsHumidity, setCalibrationResultsHumidity] = useState([])
   const [isVerificationOpen, setIsVerificationOpen] = useState(false)
   const [isVerificationLoading, setIsVerificationLoading] = useState(false)
   const [isVerificationWaitOpen, setIsVerificationWaitOpen] = useState(false)
@@ -444,8 +446,57 @@ const EquipmentsTable = ({
     return (
       typeName === 'termometro electronico tl1' ||
       typeName === 'termometro electronico tp7 tp9' ||
-      typeName === 'termometro de vidrio'
+      typeName === 'termometro de vidrio' ||
+      typeName === 'termohigrometro'
     )
+  }
+
+  const isThermoHygrometerEquipment = (equipment) => {
+    const typeName = String(equipment?.equipment_type?.name || '')
+      .trim()
+      .toLowerCase()
+    return typeName === 'termohigrometro'
+  }
+
+  const getEmptyCalibrationRow = (unit = '') => ({
+    point_label: '',
+    reference_value: '',
+    measured_value: '',
+    unit,
+    error_value: '',
+    tolerance_value: '',
+    volume_value: '',
+    systematic_error: '',
+    systematic_emp: '',
+    random_error: '',
+    random_emp: '',
+    uncertainty_value: '',
+    k_value: '',
+    is_ok: '',
+    notes: '',
+  })
+
+  const splitThermoHygroRows = (equipment, rows) => {
+    if (!isThermoHygrometerEquipment(equipment)) return null
+    const tempUnits = new Set(['c', 'f', 'k', 'r'])
+    const humidityUnits = new Set(['%', '%rh', 'rh'])
+    const temp = []
+    const humidity = []
+    ;(rows || []).forEach((row) => {
+      const unit = String(row.unit || '').trim().toLowerCase()
+      if (humidityUnits.has(unit)) {
+        humidity.push({ ...row, unit: unit || '%' })
+        return
+      }
+      if (tempUnits.has(unit)) {
+        temp.push({ ...row, unit: unit || 'c' })
+        return
+      }
+      temp.push({ ...row })
+    })
+    if (temp.length === 0) temp.push(getEmptyCalibrationRow('c'))
+    if (humidity.length === 0) humidity.push(getEmptyCalibrationRow('%'))
+    return { temp, humidity }
   }
 
   const isBalanceEquipment = (equipment) => {
@@ -673,6 +724,19 @@ const EquipmentsTable = ({
         .toLowerCase()
       if (isBalance) {
         return candidateName.startsWith('pesa')
+      }
+      if (requiresTemperatureComparison) {
+        const measures = item?.equipment_type?.measures || []
+        if (Array.isArray(measures) && measures.length > 0) {
+          return measures.includes('temperature')
+        }
+        const specMeasures = (item?.measure_specs || []).map((spec) =>
+          String(spec?.measure || '')
+        )
+        if (specMeasures.length > 0) {
+          return specMeasures.includes('temperature')
+        }
+        return false
       }
       if (!isTape) return true
       return (
@@ -1861,8 +1925,31 @@ const normalizeWeightSerial = (serial, nominalValue) => {
         return '°API'
       case 'percent_pv':
         return '% p/v'
+      case 'relative_humidity':
+        return '%'
       default:
         return ''
+    }
+  }
+
+  const getMeasureLabel = (measure) => {
+    switch (measure) {
+      case 'temperature':
+        return 'Temperatura'
+      case 'weight':
+        return 'Peso'
+      case 'length':
+        return 'Longitud'
+      case 'pressure':
+        return 'Presion'
+      case 'api':
+        return 'API'
+      case 'percent_pv':
+        return '% p/v'
+      case 'relative_humidity':
+        return 'Humedad relativa'
+      default:
+        return String(measure || '')
     }
   }
 
@@ -2034,46 +2121,36 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       notes: calibration.notes || '',
     })
     const results = Array.isArray(calibration.results) ? calibration.results : []
-    setCalibrationResults(
-      results.length
-        ? results.map((row) => ({
-            point_label: row.point_label || '',
-            reference_value: row.reference_value ?? '',
-            measured_value: row.measured_value ?? '',
-            unit: row.unit || (isHydrometer ? 'api' : isKarlFischer ? 'ml' : ''),
-            error_value: row.error_value ?? '',
-            tolerance_value: row.tolerance_value ?? '',
-            volume_value: row.volume_value ?? '',
-            systematic_error: row.systematic_error ?? '',
-            systematic_emp: row.systematic_emp ?? '',
-            random_error: row.random_error ?? '',
-            random_emp: row.random_emp ?? '',
-            uncertainty_value: row.uncertainty_value ?? '',
-            k_value: row.k_value ?? '',
-            is_ok:
-              row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
-            notes: row.notes || '',
-          }))
-        : [
-            {
-              point_label: '',
-              reference_value: '',
-              measured_value: '',
-              unit: isHydrometer ? 'api' : isKarlFischer ? 'ml' : '',
-              error_value: '',
-              tolerance_value: '',
-              volume_value: '',
-              systematic_error: '',
-              systematic_emp: '',
-              random_error: '',
-              random_emp: '',
-              uncertainty_value: '',
-              k_value: '',
-              is_ok: '',
-              notes: '',
-            },
-          ]
-    )
+    const mappedResults = results.length
+      ? results.map((row) => ({
+          point_label: row.point_label || '',
+          reference_value: row.reference_value ?? '',
+          measured_value: row.measured_value ?? '',
+          unit: row.unit || (isHydrometer ? 'api' : isKarlFischer ? 'ml' : ''),
+          error_value: row.error_value ?? '',
+          tolerance_value: row.tolerance_value ?? '',
+          volume_value: row.volume_value ?? '',
+          systematic_error: row.systematic_error ?? '',
+          systematic_emp: row.systematic_emp ?? '',
+          random_error: row.random_error ?? '',
+          random_emp: row.random_emp ?? '',
+          uncertainty_value: row.uncertainty_value ?? '',
+          k_value: row.k_value ?? '',
+          is_ok:
+            row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
+          notes: row.notes || '',
+        }))
+      : [getEmptyCalibrationRow(isHydrometer ? 'api' : isKarlFischer ? 'ml' : '')]
+    const split = splitThermoHygroRows(equipment, mappedResults)
+    if (split) {
+      setCalibrationResultsTemp(split.temp)
+      setCalibrationResultsHumidity(split.humidity)
+      setCalibrationResults([])
+    } else {
+      setCalibrationResults(mappedResults)
+      setCalibrationResultsTemp([])
+      setCalibrationResultsHumidity([])
+    }
     setCalibrationFile(null)
     setIsCalibrationHistoryOpen(false)
     setIsCalibrationOpen(true)
@@ -2084,6 +2161,7 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     const isHydrometer = isHydrometerEquipment(equipment)
     const isWeight = isWeightEquipmentType(equipment?.equipment_type)
     const isKarlFischer = isKarlFischerEquipment(equipment)
+    const isThermoHygro = isThermoHygrometerEquipment(equipment)
     const isScale = String(equipment?.equipment_type?.name || '')
       .trim()
       .toLowerCase() === 'balanza analitica'
@@ -2109,48 +2187,40 @@ const normalizeWeightSerial = (serial, nominalValue) => {
         notes: latest.notes || '',
       })
       const results = Array.isArray(latest.results) ? latest.results : []
-      setCalibrationResults(
-        results.length
-          ? results.map((row) => ({
-              point_label: row.point_label || '',
-              reference_value: row.reference_value ?? '',
-              measured_value: row.measured_value ?? '',
-              unit: row.unit || (isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : ''),
-              error_value: row.error_value ?? '',
-              tolerance_value: row.tolerance_value ?? '',
-              volume_value: row.volume_value ?? '',
-              systematic_error: row.systematic_error ?? '',
-              systematic_emp: row.systematic_emp ?? '',
-              random_error: row.random_error ?? '',
-              random_emp: row.random_emp ?? '',
-              uncertainty_value: row.uncertainty_value ?? '',
-              k_value: row.k_value ?? '',
-              is_ok:
-                row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
-              notes: row.notes || '',
-            }))
-          : isScale
-            ? []
-            : [
-                {
-                  point_label: '',
-                  reference_value: '',
-                  measured_value: '',
-                  unit: isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '',
-                  error_value: '',
-                  tolerance_value: '',
-                  volume_value: '',
-                  systematic_error: '',
-                  systematic_emp: '',
-                  random_error: '',
-                  random_emp: '',
-                  uncertainty_value: '',
-                  k_value: '',
-                  is_ok: '',
-                  notes: '',
-                },
-              ]
-      )
+      const mapped = results.length
+        ? results.map((row) => ({
+            point_label: row.point_label || '',
+            reference_value: row.reference_value ?? '',
+            measured_value: row.measured_value ?? '',
+            unit: row.unit || (isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : ''),
+            error_value: row.error_value ?? '',
+            tolerance_value: row.tolerance_value ?? '',
+            volume_value: row.volume_value ?? '',
+            systematic_error: row.systematic_error ?? '',
+            systematic_emp: row.systematic_emp ?? '',
+            random_error: row.random_error ?? '',
+            random_emp: row.random_emp ?? '',
+            uncertainty_value: row.uncertainty_value ?? '',
+            k_value: row.k_value ?? '',
+            is_ok:
+              row.is_ok === true ? 'true' : row.is_ok === false ? 'false' : '',
+            notes: row.notes || '',
+          }))
+        : isScale
+          ? []
+          : [getEmptyCalibrationRow(isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '')]
+      if (isThermoHygro) {
+        const split = splitThermoHygroRows(equipment, mapped)
+        const temp = split?.temp || []
+        const humidity = split?.humidity || []
+        setCalibrationResultsTemp(temp)
+        setCalibrationResultsHumidity(humidity)
+        setCalibrationResults([])
+      } else {
+        setCalibrationResults(mapped)
+        setCalibrationResultsTemp([])
+        setCalibrationResultsHumidity([])
+      }
     } else {
       setCalibrationEditMode(false)
       setCalibrationEditingId(null)
@@ -2161,29 +2231,18 @@ const normalizeWeightSerial = (serial, nominalValue) => {
         certificate_number: '',
         notes: '',
       })
-      setCalibrationResults(
-        isScale
-          ? []
-          : [
-              {
-                point_label: '',
-                reference_value: '',
-                measured_value: '',
-                unit: isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '',
-                error_value: '',
-                tolerance_value: '',
-                volume_value: '',
-                systematic_error: '',
-                systematic_emp: '',
-                random_error: '',
-                random_emp: '',
-                uncertainty_value: '',
-                k_value: '',
-                is_ok: '',
-                notes: '',
-              },
-            ]
-      )
+      const fresh = isScale
+        ? []
+        : [getEmptyCalibrationRow(isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '')]
+      if (isThermoHygro) {
+        setCalibrationResultsTemp([getEmptyCalibrationRow('c')])
+        setCalibrationResultsHumidity([getEmptyCalibrationRow('%')])
+        setCalibrationResults([])
+      } else {
+        setCalibrationResults(fresh)
+        setCalibrationResultsTemp([])
+        setCalibrationResultsHumidity([])
+      }
     }
     setCalibrationFile(null)
     setIsCalibrationOpen(true)
@@ -2200,6 +2259,8 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       notes: '',
     })
     setCalibrationResults([])
+    setCalibrationResultsTemp([])
+    setCalibrationResultsHumidity([])
     setCalibrationFile(null)
     setCalibrationEditMode(false)
     setCalibrationEditingId(null)
@@ -3263,10 +3324,11 @@ applyMeasureSpecs(specList, measures)
                   setPage(1)
                 }}
               >
-                <MenuItem value={5}>5</MenuItem>
-                <MenuItem value={10}>10</MenuItem>
-                <MenuItem value={20}>20</MenuItem>
-              </Select>
+                  <MenuItem value={5}>5</MenuItem>
+                  <MenuItem value={10}>10</MenuItem>
+                  <MenuItem value={15}>15</MenuItem>
+                  <MenuItem value={20}>20</MenuItem>
+                </Select>
             </FormControl>
             <Button
               size="small"
@@ -4351,6 +4413,24 @@ applyMeasureSpecs(specList, measures)
               </Box>
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">
+                  Tipo de equipo
+                </Typography>
+                <Typography>{viewEquipment?.equipment_type?.name || '-'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Marca
+                </Typography>
+                <Typography>{viewEquipment?.brand || '-'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Modelo
+                </Typography>
+                <Typography>{viewEquipment?.model || '-'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary">
                   Serial
                 </Typography>
                 <Typography>{viewEquipment?.serial || '-'}</Typography>
@@ -4377,18 +4457,6 @@ applyMeasureSpecs(specList, measures)
                 </Typography>
                 <Typography>{viewEquipment?.internal_code || '-'}</Typography>
               </Box>
-              <Box sx={{ gridColumn: { xs: '1 / -1', sm: '1 / span 1' } }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Marca
-                </Typography>
-                <Typography>{viewEquipment?.brand || '-'}</Typography>
-              </Box>
-              <Box sx={{ gridColumn: { xs: '1 / -1', sm: '2 / span 1' } }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Modelo
-                </Typography>
-                <Typography>{viewEquipment?.model || '-'}</Typography>
-              </Box>
               <Box sx={{ gridColumn: { xs: '1 / -1', sm: '1 / -1' } }}>
                 <Typography variant="subtitle2" color="text.secondary">
                   Operacion
@@ -4412,13 +4480,7 @@ applyMeasureSpecs(specList, measures)
                 </Typography>
                 {renderStatusBadge(viewEquipment?.status)}
               </Box>
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Tipo de equipo
-                </Typography>
-                <Typography>{viewEquipment?.equipment_type?.name || '-'}</Typography>
-              </Box>
-              <Box sx={{ gridColumn: { xs: '1 / -1', sm: '2 / span 2' } }}>
+              <Box sx={{ gridColumn: { xs: '1 / -1', sm: '1 / -1' } }}>
                 <Typography variant="subtitle2" color="text.secondary">
                   Especificaciones por medida
                 </Typography>
@@ -4448,7 +4510,7 @@ applyMeasureSpecs(specList, measures)
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {spec.measure}
+                          {getMeasureLabel(spec.measure)}
                         </Typography>
                         <Typography sx={{ whiteSpace: 'nowrap' }}>
                           Min: {spec.min_value ?? '-'} {getBaseUnitLabel(spec.measure)}
@@ -4637,7 +4699,10 @@ applyMeasureSpecs(specList, measures)
                               <TableCell>
                                 {entry.ended_at ? formatDateTime(entry.ended_at) : 'Actual'}
                               </TableCell>
-                              <TableCell>{getUserNameById(entry.changed_by_user_id)}</TableCell>
+                              <TableCell>
+                                {entry.changed_by_user_name ||
+                                  getUserNameById(entry.changed_by_user_id)}
+                              </TableCell>
                             </TableRow>
                           )
                         })}
@@ -7857,47 +7922,387 @@ applyMeasureSpecs(specList, measures)
                     gap: 1,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Typography sx={{ fontWeight: 600 }}>Resultados de medicion</Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() =>
-                        setCalibrationResults((prev) => [
-                          ...prev,
-                          {
-                            point_label: '',
-                            reference_value: '',
-                            measured_value: '',
-                            unit: isHydrometerEquipment(calibrationEquipment)
-                              ? 'api'
-                              : isKarlFischerEquipment(calibrationEquipment)
-                                ? 'ml'
-                              : isWeightEquipmentType(calibrationEquipment?.equipment_type)
-                                ? 'g'
-                                : '',
-                            error_value: '',
-                            tolerance_value: '',
-                            volume_value: '',
-                            systematic_error: '',
-                            systematic_emp: '',
-                            random_error: '',
-                            random_emp: '',
-                            uncertainty_value: '',
-                            k_value: '',
-                            is_ok: '',
-                            notes: '',
-                          },
-                        ])
-                      }
-                    >
-                      Agregar fila
-                    </Button>
-                  </Box>
-                  {calibrationResults.length === 0 ? (
-                    <Typography color="text.secondary">Sin resultados.</Typography>
+                  {isThermoHygrometerEquipment(calibrationEquipment) ? (
+                    <Box sx={{ display: 'grid', gap: 2 }}>
+                      <Box sx={{ display: 'grid', gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <Typography sx={{ fontWeight: 600 }}>
+                            Resultados de medicion - Temperatura
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() =>
+                              setCalibrationResultsTemp((prev) => [
+                                ...prev,
+                                getEmptyCalibrationRow('c'),
+                              ])
+                            }
+                          >
+                            Agregar fila
+                          </Button>
+                        </Box>
+                        {calibrationResultsTemp.length === 0 ? (
+                          <Typography color="text.secondary">Sin resultados.</Typography>
+                        ) : (
+                          <Box sx={{ display: 'grid', gap: 1 }}>
+                            {calibrationResultsTemp.map((row, index) => {
+                              const refValue = Number(row.reference_value)
+                              const ebcValue = Number(row.measured_value)
+                              const hasRef = !Number.isNaN(refValue)
+                              const hasEbc = !Number.isNaN(ebcValue)
+                              const correction =
+                                hasRef && hasEbc ? refValue - ebcValue : null
+                              return (
+                                <Box
+                                  key={`cal-temp-${index}`}
+                                  sx={{
+                                    display: 'grid',
+                                    gap: 1.5,
+                                    columnGap: 1.5,
+                                    gridTemplateColumns: {
+                                      xs: '1fr',
+                                      md: '0.9fr 1.4fr 1fr 1fr 1fr 1fr 0.6fr auto',
+                                    },
+                                    alignItems: 'center',
+                                    mt: 0.5,
+                                  }}
+                                >
+                                  <FormControl size="small">
+                                    <InputLabel id={`cal-temp-unit-${index}`}>
+                                      Unidad
+                                    </InputLabel>
+                                    <Select
+                                      labelId={`cal-temp-unit-${index}`}
+                                      label="Unidad"
+                                      value={row.unit || 'c'}
+                                      onChange={(event) =>
+                                        setCalibrationResultsTemp((prev) =>
+                                          prev.map((item, idx) =>
+                                            idx === index
+                                              ? { ...item, unit: event.target.value }
+                                              : item
+                                          )
+                                        )
+                                      }
+                                    >
+                                      <MenuItem value="c">C</MenuItem>
+                                      <MenuItem value="f">F</MenuItem>
+                                      <MenuItem value="k">K</MenuItem>
+                                      <MenuItem value="r">R</MenuItem>
+                                    </Select>
+                                  </FormControl>
+                                  <TextField
+                                    label="Punto"
+                                    size="small"
+                                    value={row.point_label}
+                                    onChange={(event) =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, point_label: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="Lectura patron"
+                                    size="small"
+                                    type="number"
+                                    value={row.reference_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, reference_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="EBC"
+                                    size="small"
+                                    type="number"
+                                    value={row.measured_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, measured_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="Correccion"
+                                    size="small"
+                                    value={
+                                      correction === null ? '' : correction.toFixed(3)
+                                    }
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                  <TextField
+                                    label="Incertidumbre"
+                                    size="small"
+                                    type="number"
+                                    value={row.error_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, error_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="k"
+                                    size="small"
+                                    type="number"
+                                    value={row.tolerance_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, tolerance_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <IconButton
+                                    size="small"
+                                    aria-label="Eliminar fila"
+                                    onClick={() =>
+                                      setCalibrationResultsTemp((prev) =>
+                                        prev.filter((_, idx) => idx !== index)
+                                      )
+                                    }
+                                    sx={{ color: '#b91c1c' }}
+                                  >
+                                    <DeleteOutline fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              )
+                            })}
+                          </Box>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'grid', gap: 1 }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <Typography sx={{ fontWeight: 600 }}>
+                            Resultados de medicion - % Humedad
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() =>
+                              setCalibrationResultsHumidity((prev) => [
+                                ...prev,
+                                getEmptyCalibrationRow('%'),
+                              ])
+                            }
+                          >
+                            Agregar fila
+                          </Button>
+                        </Box>
+                        {calibrationResultsHumidity.length === 0 ? (
+                          <Typography color="text.secondary">Sin resultados.</Typography>
+                        ) : (
+                          <Box sx={{ display: 'grid', gap: 1 }}>
+                            {calibrationResultsHumidity.map((row, index) => {
+                              const refValue = Number(row.reference_value)
+                              const ebcValue = Number(row.measured_value)
+                              const hasRef = !Number.isNaN(refValue)
+                              const hasEbc = !Number.isNaN(ebcValue)
+                              const correction =
+                                hasRef && hasEbc ? refValue - ebcValue : null
+                              return (
+                                <Box
+                                  key={`cal-hum-${index}`}
+                                  sx={{
+                                    display: 'grid',
+                                    gap: 1.5,
+                                    columnGap: 1.5,
+                                    gridTemplateColumns: {
+                                      xs: '1fr',
+                                      md: '0.9fr 1.4fr 1fr 1fr 1fr 1fr 0.6fr auto',
+                                    },
+                                    alignItems: 'center',
+                                    mt: 0.5,
+                                  }}
+                                >
+                                  <FormControl size="small">
+                                    <InputLabel id={`cal-hum-unit-${index}`}>
+                                      Unidad
+                                    </InputLabel>
+                                    <Select
+                                      labelId={`cal-hum-unit-${index}`}
+                                      label="Unidad"
+                                      value={row.unit || '%'}
+                                      onChange={(event) =>
+                                        setCalibrationResultsHumidity((prev) =>
+                                          prev.map((item, idx) =>
+                                            idx === index
+                                              ? { ...item, unit: event.target.value }
+                                              : item
+                                          )
+                                        )
+                                      }
+                                    >
+                                      <MenuItem value="%">%</MenuItem>
+                                      <MenuItem value="%rh">%RH</MenuItem>
+                                      <MenuItem value="rh">RH</MenuItem>
+                                    </Select>
+                                  </FormControl>
+                                  <TextField
+                                    label="Punto"
+                                    size="small"
+                                    value={row.point_label}
+                                    onChange={(event) =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, point_label: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="Lectura patron"
+                                    size="small"
+                                    type="number"
+                                    value={row.reference_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, reference_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="EBC"
+                                    size="small"
+                                    type="number"
+                                    value={row.measured_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, measured_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="Correccion"
+                                    size="small"
+                                    value={
+                                      correction === null ? '' : correction.toFixed(3)
+                                    }
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                  <TextField
+                                    label="Incertidumbre"
+                                    size="small"
+                                    type="number"
+                                    value={row.error_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, error_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <TextField
+                                    label="k"
+                                    size="small"
+                                    type="number"
+                                    value={row.tolerance_value}
+                                    onChange={(event) =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.map((item, idx) =>
+                                          idx === index
+                                            ? { ...item, tolerance_value: event.target.value }
+                                            : item
+                                        )
+                                      )
+                                    }
+                                  />
+                                  <IconButton
+                                    size="small"
+                                    aria-label="Eliminar fila"
+                                    onClick={() =>
+                                      setCalibrationResultsHumidity((prev) =>
+                                        prev.filter((_, idx) => idx !== index)
+                                      )
+                                    }
+                                    sx={{ color: '#b91c1c' }}
+                                  >
+                                    <DeleteOutline fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              )
+                            })}
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
                   ) : (
-                <Box sx={{ display: 'grid', gap: 1 }}>
+                    <Box sx={{ display: 'grid', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography sx={{ fontWeight: 600 }}>Resultados de medicion</Typography>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() =>
+                            setCalibrationResults((prev) => [
+                              ...prev,
+                              getEmptyCalibrationRow(
+                                isHydrometerEquipment(calibrationEquipment)
+                                  ? 'api'
+                                  : isKarlFischerEquipment(calibrationEquipment)
+                                    ? 'ml'
+                                    : isWeightEquipmentType(calibrationEquipment?.equipment_type)
+                                      ? 'g'
+                                      : ''
+                              ),
+                            ])
+                          }
+                        >
+                          Agregar fila
+                        </Button>
+                      </Box>
+                      {calibrationResults.length === 0 ? (
+                        <Typography color="text.secondary">Sin resultados.</Typography>
+                      ) : (
+                      <Box sx={{ display: 'grid', gap: 1 }}>
                   {isWeightEquipmentType(calibrationEquipment?.equipment_type) ? (
                     calibrationResults.map((row, index) => (
                       <Box
@@ -8516,6 +8921,8 @@ applyMeasureSpecs(specList, measures)
                   )}
                   </Box>
                 )}
+                    </Box>
+                  )}
                 </Box>
               ) : (
                 <Box
@@ -8595,82 +9002,109 @@ applyMeasureSpecs(specList, measures)
                   return
                 }
                 const isHydrometer = isHydrometerEquipment(calibrationEquipment)
-                const results = calibrationResults
-                  .filter((row) => {
-                    const hasValue =
-                      String(row.point_label || '').trim() ||
-                      String(row.reference_value || '').trim() ||
-                      String(row.measured_value || '').trim() ||
-                      String(row.unit || '').trim() ||
-                      String(row.error_value || '').trim() ||
-                      String(row.tolerance_value || '').trim() ||
-                      String(row.volume_value || '').trim() ||
-                      String(row.systematic_error || '').trim() ||
-                      String(row.systematic_emp || '').trim() ||
-                      String(row.random_error || '').trim() ||
-                      String(row.random_emp || '').trim() ||
-                      String(row.uncertainty_value || '').trim() ||
-                      String(row.k_value || '').trim() ||
-                      String(row.notes || '').trim() ||
-                      row.is_ok === 'true' ||
-                      row.is_ok === 'false'
-                    return Boolean(hasValue)
-                  })
-                  .map((row) => ({
-                    point_label: row.point_label?.trim() || null,
-                    reference_value:
-                      String(row.reference_value).trim() === ''
-                        ? null
-                        : Number(row.reference_value),
-                    measured_value:
-                      String(row.measured_value).trim() === ''
-                        ? null
-                        : Number(row.measured_value),
-                    unit: isHydrometer ? 'api' : row.unit?.trim() || null,
-                    error_value:
-                      String(row.error_value).trim() === ''
-                        ? null
-                        : Number(row.error_value),
-                    tolerance_value:
-                      String(row.tolerance_value).trim() === ''
-                        ? null
-                        : Number(row.tolerance_value),
-                    volume_value:
-                      String(row.volume_value).trim() === ''
-                        ? null
-                        : Number(row.volume_value),
-                    systematic_error:
-                      String(row.systematic_error).trim() === ''
-                        ? null
-                        : Number(row.systematic_error),
-                    systematic_emp:
-                      String(row.systematic_emp).trim() === ''
-                        ? null
-                        : Number(row.systematic_emp),
-                    random_error:
-                      String(row.random_error).trim() === ''
-                        ? null
-                        : Number(row.random_error),
-                    random_emp:
-                      String(row.random_emp).trim() === ''
-                        ? null
-                        : Number(row.random_emp),
-                    uncertainty_value:
-                      String(row.uncertainty_value).trim() === ''
-                        ? null
-                        : Number(row.uncertainty_value),
-                    k_value:
-                      String(row.k_value).trim() === ''
-                        ? null
-                        : Number(row.k_value),
-                    is_ok:
-                      row.is_ok === 'true'
-                        ? true
-                        : row.is_ok === 'false'
-                          ? false
-                          : null,
-                    notes: row.notes?.trim() || null,
-                  }))
+                const isThermoHygro = isThermoHygrometerEquipment(calibrationEquipment)
+                const isRowFilled = (row) => {
+                  const hasValue =
+                    String(row.point_label || '').trim() ||
+                    String(row.reference_value || '').trim() ||
+                    String(row.measured_value || '').trim() ||
+                    String(row.unit || '').trim() ||
+                    String(row.error_value || '').trim() ||
+                    String(row.tolerance_value || '').trim() ||
+                    String(row.volume_value || '').trim() ||
+                    String(row.systematic_error || '').trim() ||
+                    String(row.systematic_emp || '').trim() ||
+                    String(row.random_error || '').trim() ||
+                    String(row.random_emp || '').trim() ||
+                    String(row.uncertainty_value || '').trim() ||
+                    String(row.k_value || '').trim() ||
+                    String(row.notes || '').trim() ||
+                    row.is_ok === 'true' ||
+                    row.is_ok === 'false'
+                  return Boolean(hasValue)
+                }
+                const mapRow = (row, overrides = {}) => ({
+                  point_label: row.point_label?.trim() || null,
+                  reference_value:
+                    String(row.reference_value).trim() === ''
+                      ? null
+                      : Number(row.reference_value),
+                  measured_value:
+                    String(row.measured_value).trim() === ''
+                      ? null
+                      : Number(row.measured_value),
+                  unit: isHydrometer ? 'api' : row.unit?.trim() || null,
+                  error_value:
+                    String(row.error_value).trim() === ''
+                      ? null
+                      : Number(row.error_value),
+                  tolerance_value:
+                    String(row.tolerance_value).trim() === ''
+                      ? null
+                      : Number(row.tolerance_value),
+                  volume_value:
+                    String(row.volume_value).trim() === ''
+                      ? null
+                      : Number(row.volume_value),
+                  systematic_error:
+                    String(row.systematic_error).trim() === ''
+                      ? null
+                      : Number(row.systematic_error),
+                  systematic_emp:
+                    String(row.systematic_emp).trim() === ''
+                      ? null
+                      : Number(row.systematic_emp),
+                  random_error:
+                    String(row.random_error).trim() === ''
+                      ? null
+                      : Number(row.random_error),
+                  random_emp:
+                    String(row.random_emp).trim() === ''
+                      ? null
+                      : Number(row.random_emp),
+                  uncertainty_value:
+                    String(row.uncertainty_value).trim() === ''
+                      ? null
+                      : Number(row.uncertainty_value),
+                  k_value:
+                    String(row.k_value).trim() === ''
+                      ? null
+                      : Number(row.k_value),
+                  is_ok:
+                    row.is_ok === 'true'
+                      ? true
+                      : row.is_ok === 'false'
+                        ? false
+                        : null,
+                  notes: row.notes?.trim() || null,
+                  ...overrides,
+                })
+                let results = []
+                if (isThermoHygro) {
+                  const tempRows = calibrationResultsTemp.filter(isRowFilled)
+                  const humidityRows = calibrationResultsHumidity.filter(isRowFilled)
+                  if (tempRows.length === 0 || humidityRows.length === 0) {
+                    setToast({
+                      open: true,
+                      message:
+                        'El Termohigrometro requiere resultados en Temperatura y Humedad.',
+                      severity: 'error',
+                    })
+                    return
+                  }
+                  results = [
+                    ...tempRows.map((row) =>
+                      mapRow(row, { unit: row.unit?.trim() || 'c' })
+                    ),
+                    ...humidityRows.map((row) =>
+                      mapRow(row, { unit: row.unit?.trim() || '%' })
+                    ),
+                  ]
+                } else {
+                  results = calibrationResults
+                    .filter(isRowFilled)
+                    .map((row) => mapRow(row))
+                }
                 const payload = {
                   calibrated_at:
                     canEditCalibrationDate && calibrationForm.calibrated_at

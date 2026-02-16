@@ -59,7 +59,7 @@ const CompanyTerminalsTable = ({
   onTerminalChanged,
 }) => {
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('active')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -93,6 +93,8 @@ const CompanyTerminalsTable = ({
     admin_company_id: '',
     terminal_code: '',
     is_active: true,
+    has_lab: true,
+    lab_terminal_id: '',
   })
   const [toast, setToast] = useState({
     open: false,
@@ -102,6 +104,35 @@ const CompanyTerminalsTable = ({
 
   const hasActiveFilters =
     query.trim().length > 0 || statusFilter !== 'all' || ownerFilter !== 'all'
+
+  const terminalsById = useMemo(() => {
+    const map = new Map()
+    if (Array.isArray(terminals)) {
+      terminals.forEach((terminal) => {
+        if (terminal?.id != null) {
+          map.set(String(terminal.id), terminal)
+        }
+      })
+    }
+    return map
+  }, [terminals])
+
+  const labTerminalOptions = useMemo(() => {
+    return (Array.isArray(terminals) ? terminals : []).filter(
+      (terminal) =>
+        terminal?.has_lab &&
+        terminal?.is_active &&
+        (terminal?.id == null || String(terminal.id) !== String(terminalId))
+    )
+  }, [terminals, terminalId])
+
+  const getLabLabel = (terminal) => {
+    if (terminal?.has_lab) return 'Propio'
+    const labId = terminal?.lab_terminal_id
+    if (labId == null) return 'Sin laboratorio'
+    const labTerminal = terminalsById.get(String(labId))
+    return labTerminal ? `Usa: ${labTerminal.name}` : `Usa: ${labId}`
+  }
 
   const handleClearFilters = () => {
     setQuery('')
@@ -127,15 +158,17 @@ const CompanyTerminalsTable = ({
       const blockName = String(terminal.block?.name || '').toLowerCase()
       const ownerName = String(terminal.owner_company?.name || '').toLowerCase()
       const adminName = String(terminal.admin_company?.name || '').toLowerCase()
+      const labLabel = getLabLabel(terminal).toLowerCase()
       const matchesQuery =
         !normalized ||
         name.includes(normalized) ||
         blockName.includes(normalized) ||
         ownerName.includes(normalized) ||
-        adminName.includes(normalized)
+        adminName.includes(normalized) ||
+        labLabel.includes(normalized)
       return matchesStatus && matchesOwner && matchesQuery
     })
-  }, [terminals, query, statusFilter, ownerFilter])
+  }, [terminals, query, statusFilter, ownerFilter, terminalsById])
 
   const sortedTerminals = useMemo(() => {
     const getValue = (terminal) => {
@@ -150,6 +183,8 @@ const CompanyTerminalsTable = ({
           return terminal.owner_company?.name || ''
         case 'admin':
           return terminal.admin_company?.name || ''
+        case 'lab':
+          return getLabLabel(terminal)
         case 'status':
           return terminal.is_active ? 'active' : 'inactive'
         default:
@@ -163,7 +198,7 @@ const CompanyTerminalsTable = ({
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [filteredTerminals, sortBy, sortDir])
+  }, [filteredTerminals, sortBy, sortDir, terminalsById])
 
   const totalPages = Math.max(1, Math.ceil(filteredTerminals.length / rowsPerPage))
   const safePage = Math.min(page, totalPages)
@@ -189,6 +224,8 @@ const CompanyTerminalsTable = ({
       admin_company_id: companies?.[0]?.id || '',
       terminal_code: '',
       is_active: true,
+      has_lab: true,
+      lab_terminal_id: '',
     })
     setSelectedAnalysisIds([])
     if (analysisTypes.length === 0) {
@@ -223,6 +260,8 @@ const CompanyTerminalsTable = ({
       admin_company_id: terminal.admin_company_id || '',
       terminal_code: terminal.terminal_code || '',
       is_active: Boolean(terminal.is_active),
+      has_lab: Boolean(terminal.has_lab),
+      lab_terminal_id: terminal.lab_terminal_id ? String(terminal.lab_terminal_id) : '',
     })
     try {
       setIsAnalysesLoading(true)
@@ -460,6 +499,14 @@ const CompanyTerminalsTable = ({
       })
       return
     }
+    if (!formData.has_lab && !String(formData.lab_terminal_id || '').trim()) {
+      setToast({
+        open: true,
+        message: 'Selecciona un terminal con laboratorio.',
+        severity: 'error',
+      })
+      return
+    }
     setIsCreateLoading(true)
     closeCreate()
     try {
@@ -473,19 +520,23 @@ const CompanyTerminalsTable = ({
           admin_company_id: Number(formData.admin_company_id),
           terminal_code: formData.terminal_code?.trim() || null,
           is_active: formData.is_active,
+          has_lab: formData.has_lab,
+          lab_terminal_id: formData.has_lab
+            ? null
+            : Number(formData.lab_terminal_id),
         },
       })
-      if (created?.id && selectedAnalysisIds.length > 0) {
+      if (created?.id && analysisTypes.length > 0) {
         await Promise.all(
-          selectedAnalysisIds.map((analysisId) =>
+          analysisTypes.map((analysis) =>
             upsertExternalAnalysisTerminal({
               tokenType,
               accessToken,
               terminalId: created.id,
               payload: {
-                analysis_type_id: Number(analysisId),
+                analysis_type_id: Number(analysis.id),
                 frequency_days: 0,
-                is_active: true,
+                is_active: selectedAnalysisIds.includes(String(analysis.id)),
               },
             })
           )
@@ -536,6 +587,14 @@ const CompanyTerminalsTable = ({
       })
       return
     }
+    if (!formData.has_lab && !String(formData.lab_terminal_id || '').trim()) {
+      setToast({
+        open: true,
+        message: 'Selecciona un terminal con laboratorio.',
+        severity: 'error',
+      })
+      return
+    }
     setIsUpdateLoading(true)
     closeEdit()
     try {
@@ -550,6 +609,10 @@ const CompanyTerminalsTable = ({
           admin_company_id: Number(formData.admin_company_id),
           terminal_code: formData.terminal_code?.trim() || null,
           is_active: formData.is_active,
+          has_lab: formData.has_lab,
+          lab_terminal_id: formData.has_lab
+            ? null
+            : Number(formData.lab_terminal_id),
         },
       })
       if (analysisTypes.length > 0) {
@@ -812,6 +875,15 @@ const CompanyTerminalsTable = ({
                     Empresa Administradora
                   </TableSortLabel>
                 </TableCell>
+                <TableCell align="left">
+                  <TableSortLabel
+                    active={sortBy === 'lab'}
+                    direction={sortBy === 'lab' ? sortDir : 'asc'}
+                    onClick={() => handleSort('lab')}
+                  >
+                    Laboratorio
+                  </TableSortLabel>
+                </TableCell>
                 <TableCell align="center">
                   <TableSortLabel
                     active={sortBy === 'status'}
@@ -841,6 +913,7 @@ const CompanyTerminalsTable = ({
                   <TableCell>{terminal.block?.name || '-'}</TableCell>
                   <TableCell>{terminal.owner_company?.name || '-'}</TableCell>
                   <TableCell>{terminal.admin_company?.name || '-'}</TableCell>
+                  <TableCell>{getLabLabel(terminal)}</TableCell>
                   <TableCell align="center">
                     {renderStatusBadge(terminal.is_active)}
                   </TableCell>
@@ -904,10 +977,11 @@ const CompanyTerminalsTable = ({
                   setPage(1)
                 }}
               >
-                <MenuItem value={5}>5</MenuItem>
-                <MenuItem value={10}>10</MenuItem>
-                <MenuItem value={20}>20</MenuItem>
-              </Select>
+                  <MenuItem value={5}>5</MenuItem>
+                  <MenuItem value={10}>10</MenuItem>
+                  <MenuItem value={15}>15</MenuItem>
+                  <MenuItem value={20}>20</MenuItem>
+                </Select>
             </FormControl>
             <Button
               size="small"
@@ -1040,6 +1114,57 @@ const CompanyTerminalsTable = ({
                   </MenuItem>
                 ))}
               </Select>
+            </FormControl>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+              alignItems: 'center',
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={Boolean(formData.has_lab)}
+                  onChange={(event) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      has_lab: event.target.checked,
+                      lab_terminal_id: event.target.checked ? '' : prev.lab_terminal_id,
+                    }))
+                  }
+                />
+              }
+              label="Tiene laboratorio propio"
+            />
+            <FormControl disabled={formData.has_lab}>
+              <InputLabel id="terminal-lab-label">
+                Terminal laboratorio
+              </InputLabel>
+              <Select
+                labelId="terminal-lab-label"
+                label="Terminal laboratorio"
+                value={formData.lab_terminal_id}
+                onChange={(event) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    lab_terminal_id: event.target.value,
+                  }))
+                }
+              >
+                {labTerminalOptions.map((terminal) => (
+                  <MenuItem key={terminal.id} value={String(terminal.id)}>
+                    {terminal.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {!formData.has_lab && labTerminalOptions.length === 0 ? (
+                <FormHelperText>
+                  No hay terminales con laboratorio disponibles.
+                </FormHelperText>
+              ) : null}
             </FormControl>
           </Box>
           <FormControl>

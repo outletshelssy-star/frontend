@@ -30,9 +30,9 @@ const Sidebar = ({
   onSectionChange,
   onLogout,
 }) => {
-  const canSeeUsers = ['admin', 'superadmin'].includes(
-    String(currentUser?.user_type || '').toLowerCase()
-  )
+  const role = String(currentUser?.user_type || '').toLowerCase()
+  const canSeeUsers = ['admin', 'superadmin'].includes(role)
+  const isVisitor = role === 'visitor'
 
   return (
     <Box component="aside" className={`sidebar ${isCollapsed ? 'is-collapsed' : ''}`}>
@@ -71,16 +71,18 @@ const Sidebar = ({
       />
 
       <Stack className="sidebar__nav" spacing={1}>
-        <Button
-          type="button"
-          className={`sidebar__item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
-          onClick={() => onSectionChange('dashboard')}
-        >
-          <span className="sidebar__icon">
-            <BarChartOutlined fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Dashboard</span> : null}
-        </Button>
+        {!isVisitor ? (
+          <Button
+            type="button"
+            className={`sidebar__item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
+            onClick={() => onSectionChange('dashboard')}
+          >
+            <span className="sidebar__icon">
+              <BarChartOutlined fontSize="small" />
+            </span>
+            {!isCollapsed ? <span>Dashboard</span> : null}
+          </Button>
+        ) : null}
         <Button
           type="button"
           className={`sidebar__item ${activeSection === 'profile' ? 'is-active' : ''}`}
@@ -106,27 +108,13 @@ const Sidebar = ({
         {canSeeUsers ? (
           <Button
             type="button"
-            className={`sidebar__item ${
-              activeSection === 'companies' ? 'is-active' : ''
-            }`}
-            onClick={() => onSectionChange('companies')}
+            className={`sidebar__item ${activeSection === 'prueba' ? 'is-active' : ''}`}
+            onClick={() => onSectionChange('prueba')}
           >
             <span className="sidebar__icon">
               <BusinessOutlined fontSize="small" />
             </span>
             {!isCollapsed ? <span>Empresas</span> : null}
-          </Button>
-        ) : null}
-        {canSeeUsers ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${activeSection === 'blocks' ? 'is-active' : ''}`}
-            onClick={() => onSectionChange('blocks')}
-          >
-            <span className="sidebar__icon">
-              <ViewModuleOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Bloques</span> : null}
           </Button>
         ) : null}
         {canSeeUsers ? (

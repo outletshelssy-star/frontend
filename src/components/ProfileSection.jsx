@@ -45,7 +45,7 @@ const ProfileSection = ({
     message: '',
     severity: 'success',
   })
-  const isReadOnly = String(currentUser?.user_type || '').toLowerCase() === 'visitor'
+  const isVisitor = String(currentUser?.user_type || '').toLowerCase() === 'visitor'
 
   const terminalChipPalette = [
     { bg: '#e0f2fe', fg: '#075985' },
@@ -339,7 +339,7 @@ const ProfileSection = ({
           </div>
         </div>
       ) : null}
-      {currentUser && !isReadOnly ? (
+      {currentUser ? (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <Button variant="contained" onClick={handleOpenEdit}>
             Editar datos

@@ -61,6 +61,7 @@ const CompaniesTable = ({
   const [formData, setFormData] = useState({
     name: '',
     company_type: 'client',
+    is_active: true,
   })
   const [toast, setToast] = useState({
     open: false,
@@ -126,7 +127,7 @@ const CompaniesTable = ({
   }
 
   const openCreate = () => {
-    setFormData({ name: '', company_type: 'client' })
+    setFormData({ name: '', company_type: 'client', is_active: true })
     setIsCreateOpen(true)
   }
 
@@ -139,6 +140,7 @@ const CompaniesTable = ({
     setFormData({
       name: company.name || '',
       company_type: company.company_type || 'client',
+      is_active: company.is_active ?? true,
     })
     setIsEditOpen(true)
   }
@@ -202,6 +204,7 @@ const CompaniesTable = ({
         payload: {
           name: formData.name.trim(),
           company_type: formData.company_type,
+          is_active: formData.is_active,
         },
       })
       if (onCompanyChanged) {
@@ -243,6 +246,7 @@ const CompaniesTable = ({
         payload: {
           name: formData.name.trim(),
           company_type: formData.company_type,
+          is_active: formData.is_active,
         },
       })
       if (onCompanyChanged) {
@@ -313,6 +317,30 @@ const CompaniesTable = ({
         }}
       >
         {type}
+      </Box>
+    )
+  }
+
+  const renderStatusBadge = (isActive) => {
+    const colors = isActive
+      ? { fg: '#16a34a', bg: '#dcfce7' }
+      : { fg: '#b91c1c', bg: '#fee2e2' }
+    return (
+      <Box
+        component="span"
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0.2rem 0.5rem',
+          borderRadius: '999px',
+          fontSize: '0.75rem',
+          fontWeight: 600,
+          color: colors.fg,
+          backgroundColor: colors.bg,
+        }}
+      >
+        {isActive ? 'Activo' : 'Inactivo'}
       </Box>
     )
   }
@@ -437,6 +465,7 @@ const CompaniesTable = ({
                     Tipo
                   </TableSortLabel>
                 </TableCell>
+                <TableCell align="center">Estado</TableCell>
                 <TableCell align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -455,6 +484,9 @@ const CompaniesTable = ({
                   <TableCell>{company.name}</TableCell>
                   <TableCell align="center">
                     {renderTypeBadge(company.company_type)}
+                  </TableCell>
+                  <TableCell align="center">
+                    {renderStatusBadge(Boolean(company.is_active))}
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'inline-flex', gap: 1 }}>
@@ -516,10 +548,11 @@ const CompaniesTable = ({
                   setPage(1)
                 }}
               >
-                <MenuItem value={5}>5</MenuItem>
-                <MenuItem value={10}>10</MenuItem>
-                <MenuItem value={20}>20</MenuItem>
-              </Select>
+                  <MenuItem value={5}>5</MenuItem>
+                  <MenuItem value={10}>10</MenuItem>
+                  <MenuItem value={15}>15</MenuItem>
+                  <MenuItem value={20}>20</MenuItem>
+                </Select>
             </FormControl>
             <Button
               size="small"
@@ -583,6 +616,23 @@ const CompaniesTable = ({
               <MenuItem value="partner">Partner</MenuItem>
             </Select>
           </FormControl>
+          <FormControl>
+            <InputLabel id="company-status-label">Estado</InputLabel>
+            <Select
+              labelId="company-status-label"
+              label="Estado"
+              value={formData.is_active ? 'active' : 'inactive'}
+              onChange={(event) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  is_active: event.target.value === 'active',
+                }))
+              }
+            >
+              <MenuItem value="active">Activo</MenuItem>
+              <MenuItem value="inactive">Inactivo</MenuItem>
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCreate}>Cancelar</Button>
@@ -634,6 +684,23 @@ const CompaniesTable = ({
               <MenuItem value="partner">Partner</MenuItem>
             </Select>
           </FormControl>
+          <FormControl>
+            <InputLabel id="company-status-edit">Estado</InputLabel>
+            <Select
+              labelId="company-status-edit"
+              label="Estado"
+              value={formData.is_active ? 'active' : 'inactive'}
+              onChange={(event) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  is_active: event.target.value === 'active',
+                }))
+              }
+            >
+              <MenuItem value="active">Activo</MenuItem>
+              <MenuItem value="inactive">Inactivo</MenuItem>
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeEdit}>Cancelar</Button>
@@ -653,6 +720,10 @@ const CompaniesTable = ({
             Tipo
           </Typography>
           {renderTypeBadge(viewCompany?.company_type || '-')}
+          <Typography variant="subtitle2" color="text.secondary">
+            Estado
+          </Typography>
+          {renderStatusBadge(Boolean(viewCompany?.is_active))}
         </DialogContent>
         <DialogActions>
           <Button onClick={closeView}>Cerrar</Button>

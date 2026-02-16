@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -22,6 +22,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TableSortLabel,
   TableRow,
   TextField,
   Typography,
@@ -33,6 +34,10 @@ import {
   calculateHydrometerApi60f,
   createSample,
   deleteSample,
+  fetchEquipmentTypeVerifications,
+  fetchEquipmentVerifications,
+  fetchExternalAnalysesByTerminal,
+  fetchExternalAnalysisRecords,
   fetchSamplesByTerminal,
   updateSample,
 } from '../services/api'
@@ -45,6 +50,12 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [sortKey, setSortKey] = useState('created_at')
+  const [sortDirection, setSortDirection] = useState('desc')
+  const [externalAnalyses, setExternalAnalyses] = useState([])
+  const [externalAnalysisRecords, setExternalAnalysisRecords] = useState([])
+  const [externalAnalysesError, setExternalAnalysesError] = useState('')
+  const [externalRecordsError, setExternalRecordsError] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [createForm, setCreateForm] = useState({
@@ -79,8 +90,16 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     },
     water: {
       value: '',
+      kf_equipment_id: '',
+      water_balance_id: '',
+      water_sample_weight: '',
+      water_sample_weight_unit: 'g',
+      water_volume_consumed: '',
+      water_volume_unit: 'mL',
+      kf_factor_avg: '',
     },
   })
+  const [kfFactorHelper, setKfFactorHelper] = useState('')
   const [toast, setToast] = useState({
     open: false,
     message: '',
@@ -99,6 +118,10 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
   const equipmentTerminalId = isResultsOpen
     ? String(createForm.terminal_id || '')
     : String(selectedTerminalId || '')
+
+  const resultsTerminalId = String(
+    createForm.terminal_id || createdSample?.terminal_id || selectedTerminalId || ''
+  )
 
   const hydrometerOptions = useMemo(() => {
     if (!Array.isArray(equipments)) return []
@@ -126,6 +149,92 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     })
   }, [equipments, equipmentTerminalId])
 
+  const kfEquipmentOptions = useMemo(() => {
+    if (!Array.isArray(equipments)) return []
+    return equipments.filter((item) => {
+      if (!item?.id) return false
+      if (String(item.terminal_id) !== String(equipmentTerminalId)) return false
+      if (item.status !== 'in_use') return false
+      const typeName = String(item?.equipment_type?.name || '').toLowerCase()
+      return typeName === 'titulador karl fischer'
+    })
+  }, [equipments, equipmentTerminalId])
+
+  const balanceOptions = useMemo(() => {
+    if (!Array.isArray(equipments)) return []
+    return equipments.filter((item) => {
+      if (!item?.id) return false
+      if (String(item.terminal_id) !== String(equipmentTerminalId)) return false
+      if (item.status !== 'in_use') return false
+      const typeName = String(item?.equipment_type?.name || '').toLowerCase()
+      return typeName === 'balanza analitica'
+    })
+  }, [equipments, equipmentTerminalId])
+
+  const thermohygrometerOptions = useMemo(() => {
+    if (!Array.isArray(equipments)) return []
+    return equipments.filter((item) => {
+      if (!item?.id) return false
+      if (String(item.terminal_id) !== String(equipmentTerminalId)) return false
+      if (item.status !== 'in_use') return false
+      const typeName = String(item?.equipment_type?.name || '').toLowerCase()
+      return typeName === 'termohigrometro'
+    })
+  }, [equipments, equipmentTerminalId])
+
+  const getThermoLabel = (item) => {
+    if (!item) return ''
+    const serial = String(item.serial || '').trim()
+    const brand = String(item.brand || '').trim()
+    const model = String(item.model || '').trim()
+    const parts = [serial, brand, model].filter(Boolean)
+    return parts.join(' · ') || String(item.internal_code || item.id || '')
+  }
+
+  const activeExternalAnalyses = useMemo(
+    () => (Array.isArray(externalAnalyses) ? externalAnalyses.filter((item) => item.is_active) : []),
+    [externalAnalyses]
+  )
+
+  const externalLatestByType = useMemo(() => {
+    const items = Array.isArray(externalAnalysisRecords) ? externalAnalysisRecords : []
+    const byType = new Map()
+    items.forEach((record) => {
+      const typeId = record?.analysis_type_id
+      if (!typeId) return
+      const dateValue =
+        record?.performed_at || record?.created_at || record?.updated_at || null
+      const time = dateValue ? new Date(dateValue).getTime() : 0
+      const existing = byType.get(typeId)
+      const existingTime = existing?.__time || 0
+      if (!existing || time >= existingTime) {
+        byType.set(typeId, { ...record, __time: time })
+      }
+    })
+    return byType
+  }, [externalAnalysisRecords])
+
+  const parseKfFactorAvgFromNotes = (notes = '') => {
+    const text = String(notes || '')
+    const match = text.match(/Factor promedio:\s*([-+]?\d*[.,]?\d+)/i)
+    if (!match) return null
+    const value = Number(String(match[1]).replace(',', '.'))
+    return Number.isNaN(value) ? null : value
+  }
+
+  const calculateWaterPercent = (volume, volumeUnit, factor, weight, weightUnit) => {
+    const vRaw = Number(volume)
+    const f = Number(factor)
+    const wRaw = Number(weight)
+    if ([vRaw, f, wRaw].some((val) => Number.isNaN(val) || val <= 0)) return ''
+    const v =
+      String(volumeUnit || '').toLowerCase() === 'l' ? vRaw * 1000 : vRaw
+    const w =
+      String(weightUnit || '').toLowerCase() === 'g' ? wRaw * 1000 : wRaw
+    const result = (v * f / w) * 100
+    return Number.isFinite(result) ? result.toFixed(4) : ''
+  }
+
   const convertTemperatureToF = (value, unit) => {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) return null
@@ -146,6 +255,36 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     if (normalized === 'k') return (numeric - 32) * 5 / 9 + 273.15
     if (normalized === 'r') return numeric + 459.67
     return null
+  }
+
+  const convertTemperatureToC = (value, unit) => {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) return null
+    const normalized = String(unit || 'f').toLowerCase()
+    if (normalized === 'c') return numeric
+    if (normalized === 'f') return (numeric - 32) * 5 / 9
+    if (normalized === 'k') return numeric - 273.15
+    if (normalized === 'r') return (numeric - 459.67) * 5 / 9
+    return null
+  }
+
+  const formatDateInput = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+    const parsed = new Date(raw)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10)
+    }
+    return raw.slice(0, 10)
+  }
+
+  const getThermoSpecs = (equipment) => {
+    const specs = Array.isArray(equipment?.measure_specs) ? equipment.measure_specs : []
+    return {
+      temperature: specs.find((spec) => spec.measure === 'temperature') || null,
+      relativeHumidity: specs.find((spec) => spec.measure === 'relative_humidity') || null,
+    }
   }
 
   useEffect(() => {
@@ -258,6 +397,147 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
   ])
 
   useEffect(() => {
+    const selectedId = String(resultsForm.water.kf_equipment_id || '')
+    if (!isResultsOpen || !selectedId || !accessToken) {
+      setKfFactorHelper('')
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const selectedEquipment = kfEquipmentOptions.find(
+          (item) => String(item.id) === selectedId
+        )
+        const equipmentTypeId = selectedEquipment?.equipment_type_id
+        if (!equipmentTypeId) {
+          setKfFactorHelper('No se encontro el tipo de equipo KF.')
+          return
+        }
+        const [typesData, verificationsData] = await Promise.all([
+          fetchEquipmentTypeVerifications({
+            tokenType,
+            accessToken,
+            equipmentTypeId,
+          }),
+          fetchEquipmentVerifications({
+            tokenType,
+            accessToken,
+            equipmentId: Number(selectedId),
+          }),
+        ])
+        if (cancelled) return
+        const types = Array.isArray(typesData?.items) ? typesData.items : []
+        const dailyType = types.find((item) => Number(item.frequency_days) === 1)
+        if (!dailyType?.id) {
+          setKfFactorHelper('No hay tipo de verificacion diaria configurado.')
+          return
+        }
+        const verifications = Array.isArray(verificationsData?.items)
+          ? verificationsData.items
+          : []
+        const dailyVerifications = verifications.filter(
+          (item) => String(item.verification_type_id) === String(dailyType.id)
+        )
+        if (dailyVerifications.length === 0) {
+          setKfFactorHelper('No hay verificaciones diarias disponibles.')
+          return
+        }
+        const latest = dailyVerifications.reduce((acc, item) => {
+          if (!acc) return item
+          const accDate = new Date(acc.verified_at).getTime()
+          const itemDate = new Date(item.verified_at).getTime()
+          return itemDate > accDate ? item : acc
+        }, null)
+        const factor = latest ? parseKfFactorAvgFromNotes(latest.notes) : null
+        if (factor === null) {
+          setKfFactorHelper('No se encontro factor promedio en la verificacion diaria.')
+          return
+        }
+        setKfFactorHelper('')
+        setResultsForm((prev) => ({
+          ...prev,
+          water: { ...prev.water, kf_factor_avg: String(factor) },
+        }))
+      } catch (err) {
+        if (cancelled) return
+        setKfFactorHelper('No se pudo cargar el factor promedio KF.')
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    accessToken,
+    isResultsOpen,
+    resultsForm.water.kf_equipment_id,
+    kfEquipmentOptions,
+    tokenType,
+  ])
+
+  useEffect(() => {
+    if (!isResultsOpen || !resultsTerminalId || !accessToken) {
+      setExternalAnalyses([])
+      setExternalAnalysesError('')
+      setExternalAnalysisRecords([])
+      setExternalRecordsError('')
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const [analysesData, recordsData] = await Promise.all([
+          fetchExternalAnalysesByTerminal({
+            tokenType,
+            accessToken,
+            terminalId: resultsTerminalId,
+          }),
+          fetchExternalAnalysisRecords({
+            tokenType,
+            accessToken,
+            terminalId: resultsTerminalId,
+          }),
+        ])
+        if (cancelled) return
+        setExternalAnalyses(Array.isArray(analysesData?.items) ? analysesData.items : [])
+        setExternalAnalysesError('')
+        setExternalAnalysisRecords(Array.isArray(recordsData?.items) ? recordsData.items : [])
+        setExternalRecordsError('')
+      } catch (err) {
+        if (cancelled) return
+        setExternalAnalyses([])
+        setExternalAnalysesError(err?.detail || 'No se pudieron cargar los analisis externos.')
+        setExternalAnalysisRecords([])
+        setExternalRecordsError(err?.detail || 'No se pudieron cargar los registros externos.')
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [isResultsOpen, resultsTerminalId, accessToken, tokenType])
+
+  useEffect(() => {
+    if (!isResultsOpen) return
+    const nextValue = calculateWaterPercent(
+      resultsForm.water.water_volume_consumed,
+      resultsForm.water.water_volume_unit,
+      resultsForm.water.kf_factor_avg,
+      resultsForm.water.water_sample_weight,
+      resultsForm.water.water_sample_weight_unit
+    )
+    setResultsForm((prev) => ({
+      ...prev,
+      water: { ...prev.water, value: nextValue },
+    }))
+  }, [
+    isResultsOpen,
+    resultsForm.water.water_volume_consumed,
+    resultsForm.water.kf_factor_avg,
+    resultsForm.water.water_sample_weight,
+  ])
+
+  useEffect(() => {
     if (!isResultsOpen) {
       setResultsForm((prev) => ({ ...prev, lab_temp_error: '' }))
       return
@@ -333,9 +613,17 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         terminalId,
       })
       const items = Array.isArray(data?.items) ? data.items : []
-      setSamples(items)
+      const sortedItems = [...items].sort((a, b) => {
+        const aTime = new Date(a?.analyzed_at || a?.created_at || 0).getTime()
+        const bTime = new Date(b?.analyzed_at || b?.created_at || 0).getTime()
+        if (aTime !== bTime) return bTime - aTime
+        const aId = Number(a?.id || 0)
+        const bId = Number(b?.id || 0)
+        return bId - aId
+      })
+      setSamples(sortedItems)
       if (options.jumpToSampleId) {
-        const index = items.findIndex((item) => item.id === options.jumpToSampleId)
+        const index = sortedItems.findIndex((item) => item.id === options.jumpToSampleId)
         if (index >= 0) {
           setPage(Math.floor(index / rowsPerPage) + 1)
         }
@@ -426,12 +714,58 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     })
   }, [samples, query])
 
-  const totalPages = Math.max(1, Math.ceil(filteredSamples.length / rowsPerPage))
+  const sortedSamples = useMemo(() => {
+    const items = Array.isArray(filteredSamples) ? [...filteredSamples] : []
+    const getValue = (sample, key) => {
+      const analysis = Array.isArray(sample?.analyses) ? sample.analyses[0] : null
+      if (key === 'code') return sample?.code || ''
+      if (key === 'created_at') return sample?.created_at || ''
+      if (key === 'product') return analysis?.product_name || ''
+      if (key === 'identifier') return sample?.identifier || ''
+      if (key === 'api_60f') return analysis?.api_60f ?? null
+      if (key === 'water_value') {
+        const waterAnalysis = Array.isArray(sample?.analyses)
+          ? sample.analyses.find((item) => item?.analysis_type === 'water_astm_4377')
+          : null
+        return waterAnalysis?.water_value ?? null
+      }
+      return ''
+    }
+    const dir = sortDirection === 'asc' ? 1 : -1
+    return items.sort((a, b) => {
+      const aVal = getValue(a, sortKey)
+      const bVal = getValue(b, sortKey)
+      if (sortKey === 'created_at') {
+        const aTime = aVal ? new Date(aVal).getTime() : 0
+        const bTime = bVal ? new Date(bVal).getTime() : 0
+        if (aTime !== bTime) return dir * (aTime - bTime)
+      }
+      if (typeof aVal === 'number' || typeof bVal === 'number') {
+        const aNum = aVal === null || aVal === '' ? Number.NEGATIVE_INFINITY : Number(aVal)
+        const bNum = bVal === null || bVal === '' ? Number.NEGATIVE_INFINITY : Number(bVal)
+        if (aNum !== bNum) return dir * (aNum - bNum)
+      }
+      const aStr = String(aVal ?? '')
+      const bStr = String(bVal ?? '')
+      return dir * aStr.localeCompare(bStr, 'es', { numeric: true, sensitivity: 'base' })
+    })
+  }, [filteredSamples, sortKey, sortDirection])
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection('asc')
+  }
+
+  const totalPages = Math.max(1, Math.ceil(sortedSamples.length / rowsPerPage))
   const safePage = Math.min(page, totalPages)
   const pagedSamples = useMemo(() => {
     const start = (safePage - 1) * rowsPerPage
-    return filteredSamples.slice(start, start + rowsPerPage)
-  }, [filteredSamples, safePage, rowsPerPage])
+    return sortedSamples.slice(start, start + rowsPerPage)
+  }, [sortedSamples, safePage, rowsPerPage])
 
   const lastSampleId = useMemo(() => {
     if (!samples.length) return null
@@ -464,9 +798,10 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     setResultsForm((prev) => ({
       ...prev,
       product_name: sample.product_name || apiAnalysis?.product_name || prev.product_name,
-      analyzed_at: sample.analyzed_at
-        ? new Date(sample.analyzed_at).toISOString().slice(0, 10)
-        : prev.analyzed_at,
+      analyzed_at:
+        sample.analyzed_at || sample.created_at
+          ? formatDateInput(sample.analyzed_at || sample.created_at)
+          : prev.analyzed_at,
       identifier: sample.identifier || '',
       thermohygrometer_name: sample.thermohygrometer_name || prev.thermohygrometer_name,
       lab_humidity:
@@ -512,12 +847,40 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
           waterAnalysis?.water_value !== undefined && waterAnalysis?.water_value !== null
             ? String(waterAnalysis.water_value)
             : '',
+        kf_equipment_id:
+          waterAnalysis?.kf_equipment_id !== undefined &&
+            waterAnalysis?.kf_equipment_id !== null
+            ? String(waterAnalysis.kf_equipment_id)
+            : '',
+        water_balance_id:
+          waterAnalysis?.water_balance_id !== undefined &&
+            waterAnalysis?.water_balance_id !== null
+            ? String(waterAnalysis.water_balance_id)
+            : '',
+        water_sample_weight:
+          waterAnalysis?.water_sample_weight !== undefined &&
+            waterAnalysis?.water_sample_weight !== null
+            ? String(waterAnalysis.water_sample_weight)
+            : '',
+        water_sample_weight_unit:
+          waterAnalysis?.water_sample_weight_unit || 'g',
+        water_volume_consumed:
+          waterAnalysis?.water_volume_consumed !== undefined &&
+            waterAnalysis?.water_volume_consumed !== null
+            ? String(waterAnalysis.water_volume_consumed)
+            : '',
+        water_volume_unit: waterAnalysis?.water_volume_unit || 'mL',
+        kf_factor_avg:
+          waterAnalysis?.kf_factor_avg !== undefined && waterAnalysis?.kf_factor_avg !== null
+            ? String(waterAnalysis.kf_factor_avg)
+            : '',
       },
     }))
     setIsResultsOpen(true)
   }
 
   const isEditDisabledForUser = (sample) => {
+    if (String(currentUser?.user_type || '').toLowerCase() === 'visitor') return true
     if (!isUserRole || !sample?.created_at) return false
     const createdAt = new Date(sample.created_at).getTime()
     if (Number.isNaN(createdAt)) return false
@@ -539,21 +902,23 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
           Muestras
         </Typography>
-        <Button
-          variant="contained"
-          onClick={() => {
-            setCreateForm((prev) => ({
-              ...prev,
-              terminal_id: selectedTerminalId || String(terminalOptions[0]?.id || ''),
-              identifier: '',
-              analyses: ['api_astm_1298'],
-            }))
-            setIsCreateOpen(true)
-          }}
-          disabled={!selectedTerminalId}
-        >
-          Crear muestra
-        </Button>
+        {canDeleteSample ? (
+          <Button
+            variant="contained"
+            onClick={() => {
+              setCreateForm((prev) => ({
+                ...prev,
+                terminal_id: selectedTerminalId || String(terminalOptions[0]?.id || ''),
+                identifier: '',
+                analyses: ['api_astm_1298'],
+              }))
+              setIsCreateOpen(true)
+            }}
+            disabled={!selectedTerminalId}
+          >
+            Crear muestra
+          </Button>
+        ) : null}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -632,18 +997,67 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                   },
                 }}
               >
-                <TableCell>Codigo</TableCell>
-                <TableCell>Fecha</TableCell>
-                <TableCell>Producto</TableCell>
-                <TableCell>Identificador</TableCell>
-                <TableCell>API 60F</TableCell>
+                <TableCell sortDirection={sortKey === 'code' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'code'}
+                    direction={sortKey === 'code' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('code')}
+                  >
+                    Codigo
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortKey === 'created_at' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'created_at'}
+                    direction={sortKey === 'created_at' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('created_at')}
+                  >
+                    Fecha
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortKey === 'product' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'product'}
+                    direction={sortKey === 'product' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('product')}
+                  >
+                    Producto
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortKey === 'identifier' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'identifier'}
+                    direction={sortKey === 'identifier' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('identifier')}
+                  >
+                    Identificador
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortKey === 'api_60f' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'api_60f'}
+                    direction={sortKey === 'api_60f' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('api_60f')}
+                  >
+                    API 60 °F
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={sortKey === 'water_value' ? sortDirection : false}>
+                  <TableSortLabel
+                    active={sortKey === 'water_value'}
+                    direction={sortKey === 'water_value' ? sortDirection : 'asc'}
+                    onClick={() => handleSort('water_value')}
+                  >
+                    % Agua
+                  </TableSortLabel>
+                </TableCell>
                 <TableCell sx={{ width: 140 }}>Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredSamples.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={9}>
                     <Typography color="text.secondary">Sin muestras.</Typography>
                   </TableCell>
                 </TableRow>
@@ -664,7 +1078,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                         '&:hover': { backgroundColor: '#eef2ff' },
                       }}
                     >
-                    <TableCell>{sample.code || '-'}</TableCell>
+                      <TableCell>{sample.code || '-'}</TableCell>
                       <TableCell>
                         {sample.created_at
                           ? new Date(sample.created_at).toLocaleDateString()
@@ -675,42 +1089,57 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                       <TableCell>
                         {analysis?.api_60f !== undefined ? analysis.api_60f : '-'}
                       </TableCell>
-                    <TableCell align="center" sx={{ width: 140 }}>
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, whiteSpace: 'nowrap' }}>
-                        <IconButton
-                          size="small"
-                          aria-label="Ver muestra"
-                          onClick={() => openResultsForSample(sample, 'view')}
-                          sx={{ color: '#64748b', '&:hover': { color: '#4338ca' } }}
-                        >
-                          <VisibilityOutlined fontSize="small" />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          aria-label="Editar muestra"
-                          disabled={isEditDisabled}
-                          onClick={() => openResultsForSample(sample, 'edit')}
-                          sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
-                        >
-                          <EditOutlined fontSize="small" />
-                        </IconButton>
-                        {canDeleteSample ? (
+                      <TableCell>
+                        {(() => {
+                          const waterAnalysis = Array.isArray(sample.analyses)
+                            ? sample.analyses.find(
+                              (item) => item?.analysis_type === 'water_astm_4377'
+                            )
+                            : null
+                          return waterAnalysis?.water_value !== undefined &&
+                            waterAnalysis?.water_value !== null
+                            ? waterAnalysis.water_value
+                            : '-'
+                        })()}
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: 140 }}>
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, whiteSpace: 'nowrap' }}>
                           <IconButton
                             size="small"
-                            aria-label="Eliminar muestra"
-                            disabled={!canDeleteThisSample}
-                            onClick={() => setDeleteTarget(sample)}
-                            sx={{ color: '#64748b', '&:hover': { color: '#b91c1c' } }}
+                            aria-label="Ver muestra"
+                            onClick={() => openResultsForSample(sample, 'view')}
+                            sx={{ color: '#64748b', '&:hover': { color: '#4338ca' } }}
                           >
-                            <DeleteOutline fontSize="small" />
+                            <VisibilityOutlined fontSize="small" />
                           </IconButton>
-                        ) : null}
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
+                          {canDeleteSample ? (
+                            <IconButton
+                              size="small"
+                              aria-label="Editar muestra"
+                              disabled={isEditDisabled}
+                              onClick={() => openResultsForSample(sample, 'edit')}
+                              sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                            >
+                              <EditOutlined fontSize="small" />
+                            </IconButton>
+                          ) : null}
+                          {canDeleteSample ? (
+                            <IconButton
+                              size="small"
+                              aria-label="Eliminar muestra"
+                              disabled={!canDeleteThisSample}
+                              onClick={() => setDeleteTarget(sample)}
+                              sx={{ color: '#64748b', '&:hover': { color: '#b91c1c' } }}
+                            >
+                              <DeleteOutline fontSize="small" />
+                            </IconButton>
+                          ) : null}
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
             </TableBody>
           </Table>
         </TableContainer>
@@ -743,6 +1172,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               >
                 <MenuItem value={5}>5</MenuItem>
                 <MenuItem value={10}>10</MenuItem>
+                <MenuItem value={15}>15</MenuItem>
                 <MenuItem value={20}>20</MenuItem>
               </Select>
             </FormControl>
@@ -771,16 +1201,18 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         onClose={() => setIsCreateOpen(false)}
         fullWidth
         maxWidth="sm"
+        PaperProps={{ sx: { maxWidth: 768 } }}
       >
         <DialogTitle>Crear muestra</DialogTitle>
         <DialogContent
           sx={{
             display: 'grid',
-            gap: 2,
-            pt: 2,
+            gap: 1.5,
+            pt: 1.5,
             overflow: 'visible',
             '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
             '& .MuiOutlinedInput-root': { backgroundColor: '#fff' },
+            '& .MuiInputBase-root': { height: 40 },
           }}
         >
           <FormControl size="small" fullWidth>
@@ -813,12 +1245,13 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                 identifier: event.target.value,
               }))
             }
+            required
           />
           <Box>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
               Analisis
             </Typography>
-            <FormGroup>
+            <FormGroup row>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -865,6 +1298,14 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                 setToast({
                   open: true,
                   message: 'Selecciona un terminal.',
+                  severity: 'error',
+                })
+                return
+              }
+              if (!String(createForm.identifier || '').trim()) {
+                setToast({
+                  open: true,
+                  message: 'El identificador es obligatorio.',
                   severity: 'error',
                 })
                 return
@@ -923,6 +1364,13 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                   lab_temp_error: '',
                   water: {
                     value: '',
+                    kf_equipment_id: '',
+                    water_balance_id: '',
+                    water_sample_weight: '',
+                    water_sample_weight_unit: 'g',
+                    water_volume_consumed: '',
+                    water_volume_unit: 'mL',
+                    kf_factor_avg: '',
                   },
                 }))
                 setIsResultsOpen(true)
@@ -948,6 +1396,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         onClose={() => setIsResultsOpen(false)}
         fullWidth
         maxWidth="md"
+        PaperProps={{ sx: { maxWidth: 1152 } }}
       >
         <DialogTitle
           sx={{
@@ -987,14 +1436,14 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         <DialogContent
           sx={{
             display: 'grid',
-            gap: 2,
-            pt: 2,
+            gap: 1.5,
+            pt: 1.5,
             overflow: 'visible',
             '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
             '& .MuiOutlinedInput-root': { backgroundColor: '#fff' },
           }}
         >
-          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+          <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
               <InputLabel id="results-product-label">Producto</InputLabel>
               <Select
@@ -1011,17 +1460,17 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                 <MenuItem value="Crudo">Crudo</MenuItem>
               </Select>
             </FormControl>
-          <TextField
-            label="Fecha del analisis"
-            type="date"
-            value={resultsForm.analyzed_at}
-            size="small"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-            disabled={resultsMode === 'view'}
-            onChange={(event) =>
-              setResultsForm((prev) => ({
-                ...prev,
+            <TextField
+              label="Fecha del analisis"
+              type="date"
+              value={resultsForm.analyzed_at}
+              size="small"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              disabled={resultsMode === 'view'}
+              onChange={(event) =>
+                setResultsForm((prev) => ({
+                  ...prev,
                   analyzed_at: event.target.value,
                 }))
               }
@@ -1041,20 +1490,39 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               />
             ) : null}
           </Box>
-          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-            <TextField
-              label="Termohigrometro"
-              value={resultsForm.thermohygrometer_name}
-              size="small"
-              fullWidth
-              disabled={resultsMode === 'view'}
-              onChange={(event) =>
-                setResultsForm((prev) => ({
-                  ...prev,
-                  thermohygrometer_name: event.target.value,
-                }))
-              }
-            />
+          <Box sx={{ display: 'grid', gap: 0.75, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+            <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
+              <InputLabel id="thermo-label">Termohigrometro</InputLabel>
+              <Select
+                labelId="thermo-label"
+                label="Termohigrometro"
+                value={resultsForm.thermohygrometer_name}
+                onChange={(event) =>
+                  setResultsForm((prev) => ({
+                    ...prev,
+                    thermohygrometer_name: String(event.target.value || ''),
+                  }))
+                }
+              >
+                <MenuItem value="">Selecciona</MenuItem>
+                {thermohygrometerOptions.map((item) => {
+                  const label = getThermoLabel(item)
+                  return (
+                    <MenuItem key={item.id} value={label}>
+                      {label}
+                    </MenuItem>
+                  )
+                })}
+                {resultsForm.thermohygrometer_name &&
+                !thermohygrometerOptions.some(
+                  (item) => getThermoLabel(item) === resultsForm.thermohygrometer_name
+                ) ? (
+                  <MenuItem value={resultsForm.thermohygrometer_name}>
+                    {resultsForm.thermohygrometer_name}
+                  </MenuItem>
+                ) : null}
+              </Select>
+            </FormControl>
             <TextField
               label="Humedad relativa (%)"
               type="number"
@@ -1069,7 +1537,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                 }))
               }
             />
-            <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'minmax(0, 1fr) 90px' }}>
+            <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'minmax(0, 1fr) 90px' }}>
               <TextField
                 label="Temperatura laboratorio"
                 type="number"
@@ -1109,7 +1577,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
           </Box>
           {resultsMode === 'edit' ? (
             <Box>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.25 }}>
                 Analisis
               </Typography>
               <FormGroup row>
@@ -1148,159 +1616,457 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               </FormGroup>
             </Box>
           ) : null}
-          {createForm.analyses.includes('api_astm_1298') ? (
-            <Box sx={{ border: '1px solid #e5e7eb', borderRadius: 1, p: 1.5, display: 'grid', gap: 1.5 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                API ASTM 1298
-              </Typography>
-              <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
-                  <InputLabel id="api-thermometer-label">Termometro</InputLabel>
-                  <Select
-                    labelId="api-thermometer-label"
-                    label="Termometro"
-                    value={resultsForm.api.thermometer_id}
-                    onChange={(event) =>
-                      setResultsForm((prev) => ({
-                        ...prev,
-                        api: { ...prev.api, thermometer_id: String(event.target.value || '') },
-                      }))
-                    }
+          {(createForm.analyses.includes('api_astm_1298') ||
+            createForm.analyses.includes('water_astm_4377')) ? (
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.5,
+                gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+              }}
+            >
+              {createForm.analyses.includes('api_astm_1298') ? (
+                <Box
+                  sx={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 1,
+                    p: 0.75,
+                    display: 'grid',
+                    gap: 1.5,
+                  }}
+                >
+                  <Typography variant="subtitle2" color="text.secondary">
+                    API ASTM 1298
+                  </Typography>
+                  <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' } }}>
+                    <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
+                      <InputLabel id="api-thermometer-label">Termometro</InputLabel>
+                      <Select
+                        labelId="api-thermometer-label"
+                        label="Termometro"
+                        value={resultsForm.api.thermometer_id}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            api: { ...prev.api, thermometer_id: String(event.target.value || '') },
+                          }))
+                        }
+                      >
+                        {thermometerOptions.map((item) => (
+                          <MenuItem key={item.id} value={String(item.id)}>
+                            {item.serial} - {item.brand} {item.model}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
+                      <InputLabel id="api-temp-unit-label">Unidad</InputLabel>
+                      <Select
+                        labelId="api-temp-unit-label"
+                        label="Unidad"
+                        value={resultsForm.api.temp_unit}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            api: { ...prev.api, temp_unit: String(event.target.value || 'f') },
+                          }))
+                        }
+                      >
+                        <MenuItem value="f">F</MenuItem>
+                        <MenuItem value="c">C</MenuItem>
+                        <MenuItem value="k">K</MenuItem>
+                        <MenuItem value="r">R</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' } }}>
+                    <TextField
+                      label="Temp observada inicial"
+                      type="number"
+                      value={resultsForm.api.temp_obs_start}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          api: { ...prev.api, temp_obs_start: event.target.value },
+                        }))
+                      }
+                    />
+                    <TextField
+                      label="Temp observada final"
+                      type="number"
+                      value={resultsForm.api.temp_obs_end}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          api: { ...prev.api, temp_obs_end: event.target.value },
+                        }))
+                      }
+                    />
+                    <TextField
+                      label="Temp promedio"
+                      value={getAvgTempDisplay()}
+                      size="small"
+                      fullWidth
+                      InputProps={{ readOnly: true }}
+                      error={Boolean(resultsForm.api.temp_diff_error)}
+                      helperText={resultsForm.api.temp_diff_error || undefined}
+                      FormHelperTextProps={{ sx: { m: 0, mt: 0.25 } }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' } }}>
+                    <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
+                      <InputLabel id="api-hydrometer-label">Hidrometro</InputLabel>
+                      <Select
+                        labelId="api-hydrometer-label"
+                        label="Hidrometro"
+                        value={resultsForm.api.hydrometer_id}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            api: { ...prev.api, hydrometer_id: String(event.target.value || '') },
+                          }))
+                        }
+                      >
+                        {hydrometerOptions.map((item) => (
+                          <MenuItem key={item.id} value={String(item.id)}>
+                            {item.serial} - {item.brand} {item.model}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      label="Lectura API"
+                      type="number"
+                      value={resultsForm.api.lectura_api}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          api: { ...prev.api, lectura_api: event.target.value },
+                        }))
+                      }
+                    />
+                  </Box>
+                  {resultsForm.api.api_60f_error ? (
+                    <Typography variant="caption" color="error">
+                      {resultsForm.api.api_60f_error}
+                    </Typography>
+                  ) : null}
+                  <Box
+                    sx={{
+                      border: "1px solid #dbeafe",
+                      backgroundColor: "#eff6ff",
+                      borderRadius: 1,
+                      p: 1,
+                      textAlign: 'center',
+                      alignItems: 'center',
+                      display: "grid",
+                      gap: 0.25,
+                    }}
                   >
-                    {thermometerOptions.map((item) => (
-                      <MenuItem key={item.id} value={String(item.id)}>
-                        {item.serial} - {item.brand} {item.model}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
-                  <InputLabel id="api-temp-unit-label">Unidad temperatura</InputLabel>
-                  <Select
-                    labelId="api-temp-unit-label"
-                    label="Unidad temperatura"
-                    value={resultsForm.api.temp_unit}
-                    onChange={(event) =>
-                      setResultsForm((prev) => ({
-                        ...prev,
-                        api: { ...prev.api, temp_unit: String(event.target.value || 'f') },
-                      }))
-                    }
+                    <Typography variant="h5" sx={{ fontWeight: 700, color: "#1d4ed8" }}>
+                      {resultsForm.api.api_60f || "--"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      API 60 °F
+                    </Typography>
+                  </Box>
+                </Box>
+              ) : null}
+              {createForm.analyses.includes('water_astm_4377') ? (
+                <Box sx={{ border: '1px solid #e5e7eb', borderRadius: 1, p: 1.5, display: 'grid', gap: 1.5 }}>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Agua ASTM 4377
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.5,
+                      gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' },
+                    }}
                   >
-                    <MenuItem value="f">F</MenuItem>
-                    <MenuItem value="c">C</MenuItem>
-                    <MenuItem value="k">K</MenuItem>
-                    <MenuItem value="r">R</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-              <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                <TextField
-                  label="Temperatura observada inicial"
-                  type="number"
-                  value={resultsForm.api.temp_obs_start}
-                  size="small"
-                  fullWidth
-                  disabled={resultsMode === 'view'}
-                  onChange={(event) =>
-                    setResultsForm((prev) => ({
-                      ...prev,
-                      api: { ...prev.api, temp_obs_start: event.target.value },
-                    }))
-                  }
-                />
-                <TextField
-                  label="Temperatura observada final"
-                  type="number"
-                  value={resultsForm.api.temp_obs_end}
-                  size="small"
-                  fullWidth
-                  disabled={resultsMode === 'view'}
-                  onChange={(event) =>
-                    setResultsForm((prev) => ({
-                      ...prev,
-                      api: { ...prev.api, temp_obs_end: event.target.value },
-                    }))
-                  }
-                />
-              <TextField
-                label="Promedio temperatura"
-                value={getAvgTempDisplay()}
-                size="small"
-                fullWidth
-                InputProps={{ readOnly: true }}
-                error={Boolean(resultsForm.api.temp_diff_error)}
-                helperText={resultsForm.api.temp_diff_error || ' '}
-              />
-              </Box>
-              <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                <FormControl size="small" fullWidth disabled={resultsMode === 'view'}>
-                  <InputLabel id="api-hydrometer-label">Hidrometro</InputLabel>
-                  <Select
-                    labelId="api-hydrometer-label"
-                    label="Hidrometro"
-                    value={resultsForm.api.hydrometer_id}
-                    onChange={(event) =>
-                      setResultsForm((prev) => ({
-                        ...prev,
-                        api: { ...prev.api, hydrometer_id: String(event.target.value || '') },
-                      }))
-                    }
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="kf-equipment-label">Equipo KF</InputLabel>
+                      <Select
+                        labelId="kf-equipment-label"
+                        label="Equipo KF"
+                        value={resultsForm.water.kf_equipment_id}
+                        disabled={resultsMode === 'view'}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            water: { ...prev.water, kf_equipment_id: event.target.value },
+                          }))
+                        }
+                      >
+                        {kfEquipmentOptions.map((item) => (
+                          <MenuItem key={item.id} value={String(item.id)}>
+                            {item.serial} - {item.brand} {item.model}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      label="Factor KF"
+                      type="number"
+                      value={resultsForm.water.kf_factor_avg}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      required
+                      helperText={kfFactorHelper || undefined}
+                      error={Boolean(kfFactorHelper)}
+                      FormHelperTextProps={{ sx: { m: 0, mt: 0.25 } }}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, kf_factor_avg: event.target.value },
+                        }))
+                      }
+                    />
+                  </Box>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.5,
+                      gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' },
+                    }}
                   >
-                    {hydrometerOptions.map((item) => (
-                      <MenuItem key={item.id} value={String(item.id)}>
-                        {item.serial} - {item.brand} {item.model}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <TextField
-                  label="Lectura API"
-                  type="number"
-                  value={resultsForm.api.lectura_api}
-                  size="small"
-                  fullWidth
-                  disabled={resultsMode === 'view'}
-                  onChange={(event) =>
-                    setResultsForm((prev) => ({
-                      ...prev,
-                      api: { ...prev.api, lectura_api: event.target.value },
-                    }))
-                  }
-                />
-              </Box>
-              <TextField
-                label="API a 60F"
-                value={resultsForm.api.api_60f}
-                size="small"
-                fullWidth
-                InputProps={{ readOnly: true }}
-                error={Boolean(resultsForm.api.api_60f_error)}
-                helperText={resultsForm.api.api_60f_error || ' '}
-              />
+                    <TextField
+                      label="Peso de muestra"
+                      type="number"
+                      value={resultsForm.water.water_sample_weight}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, water_sample_weight: event.target.value },
+                        }))
+                      }
+                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="water-weight-unit-label">Unidad peso</InputLabel>
+                      <Select
+                        labelId="water-weight-unit-label"
+                        label="Unidad peso"
+                        value={resultsForm.water.water_sample_weight_unit || 'g'}
+                        disabled={resultsMode === 'view'}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            water: {
+                              ...prev.water,
+                              water_sample_weight_unit: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <MenuItem value="g">g</MenuItem>
+                        <MenuItem value="mg">mg</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="water-balance-label">Balanza</InputLabel>
+                    <Select
+                      labelId="water-balance-label"
+                      label="Balanza"
+                      value={resultsForm.water.water_balance_id}
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, water_balance_id: event.target.value },
+                        }))
+                      }
+                    >
+                      {balanceOptions.map((item) => (
+                        <MenuItem key={item.id} value={String(item.id)}>
+                          {item.serial} - {item.brand} {item.model}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.5,
+                      gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' },
+                    }}
+                  >
+                    <TextField
+                      label="Volumen consumido"
+                      type="number"
+                      value={resultsForm.water.water_volume_consumed}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, water_volume_consumed: event.target.value },
+                        }))
+                      }
+                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="water-volume-unit-label">Unidad volumen</InputLabel>
+                      <Select
+                        labelId="water-volume-unit-label"
+                        label="Unidad volumen"
+                        value={resultsForm.water.water_volume_unit || 'mL'}
+                        disabled={resultsMode === 'view'}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            water: {
+                              ...prev.water,
+                              water_volume_unit: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <MenuItem value="mL">mL</MenuItem>
+                        <MenuItem value="L">L</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <Box
+                    sx={{
+                      border: "1px solid #dcfce7",
+                      backgroundColor: "#f0fdf4",
+                      borderRadius: 1,
+                      p: 1,
+                      textAlign: 'center',
+                      alignItems: 'center',
+                      display: "grid",
+                      gap: 0.25,
+                    }}
+                  >
+                    <Typography variant="h5" sx={{ fontWeight: 700, color: "#15803d" }}>
+                      {resultsForm.water.value || "--"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      % Agua
+                    </Typography>
+                  </Box>
+                </Box>
+              ) : null}
             </Box>
           ) : null}
-          {createForm.analyses.includes('water_astm_4377') ? (
-            <Box sx={{ border: '1px solid #e5e7eb', borderRadius: 1, p: 1.5, display: 'grid', gap: 1.5 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Agua ASTM 4377
+          <Box sx={{ display: 'grid', gap: 1, mt: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary">
+              Analisis externos activos
+            </Typography>
+            {externalAnalysesError || externalRecordsError ? (
+              <Typography variant="caption" color="error">
+                {externalAnalysesError || externalRecordsError}
               </Typography>
-              <TextField
-                label="Agua"
-                type="number"
-                value={resultsForm.water.value}
-                size="small"
-                fullWidth
-                disabled={resultsMode === 'view'}
-                onChange={(event) =>
-                  setResultsForm((prev) => ({
-                    ...prev,
-                    water: { ...prev.water, value: event.target.value },
-                  }))
-                }
-              />
-            </Box>
-          ) : null}
+            ) : activeExternalAnalyses.length > 0 ? (
+              <Box
+                sx={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 1,
+                  p: 1.5,
+                  display: 'grid',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.5,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      sm: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    },
+                  }}
+                >
+                  {activeExternalAnalyses.map((analysis) => {
+                    const latestRecord = externalLatestByType.get(analysis.analysis_type_id)
+                    const resultValue =
+                      latestRecord?.result_value !== undefined && latestRecord?.result_value !== null
+                        ? String(latestRecord.result_value)
+                        : ''
+                    const resultUnit = latestRecord?.result_unit || ''
+                    const resultDisplay = resultValue
+                    const resultDate =
+                      latestRecord?.performed_at || latestRecord?.created_at || ''
+                    const analysisCompanyName =
+                      latestRecord?.analysis_company_name ||
+                      latestRecord?.analysis_company?.name ||
+                      ''
+                    return (
+                      <Box
+                        key={analysis.analysis_type_id}
+                        sx={{
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 1,
+                          p: 1,
+                          display: 'grid',
+                          gap: 0.5,
+                          gridTemplateColumns: 'minmax(0, 1fr) 140px',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Box sx={{ display: 'grid', gap: 0.25 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                            {analysis.analysis_type_name}
+                          </Typography>
+                          {resultDate ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(resultDate).toLocaleDateString()}
+                            </Typography>
+                          ) : null}
+                          {analysisCompanyName ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {analysisCompanyName}
+                            </Typography>
+                          ) : null}
+                          {analysis.method ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {analysis.method}
+                            </Typography>
+                          ) : null}
+                        </Box>
+                        <Box
+                          sx={{
+                            borderRadius: 1,
+                            p: 0.75,
+                            textAlign: 'center',
+                            display: 'grid',
+                            gap: 0.25,
+                          }}
+                        >
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#1d4ed8' }}>
+                            {resultDisplay || '--'}
+                          </Typography>
+                          {resultUnit ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {resultUnit}
+                            </Typography>
+                          ) : null}
+                        </Box>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </Box>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                No hay analisis externos activos.
+              </Typography>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIsResultsOpen(false)}>Cerrar</Button>
@@ -1310,8 +2076,13 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               disabled={isSavingResults || !createdSample?.id}
               onClick={async () => {
                 if (!createdSample?.id) return
-                const analyzedAt = resultsForm.analyzed_at
-                  ? new Date(resultsForm.analyzed_at).toISOString()
+                const analyzedAtRaw =
+                  resultsForm.analyzed_at ||
+                  createdSample?.analyzed_at ||
+                  createdSample?.created_at ||
+                  null
+                const analyzedAt = analyzedAtRaw
+                  ? new Date(analyzedAtRaw).toISOString()
                   : null
                 setIsSavingResults(true)
                 try {
@@ -1337,11 +2108,96 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                       }
                     }
                   }
+                  const selectedThermo = thermohygrometerOptions.find(
+                    (item) =>
+                      getThermoLabel(item) === resultsForm.thermohygrometer_name
+                  )
+                  if (selectedThermo) {
+                    const { temperature, relativeHumidity } = getThermoSpecs(selectedThermo)
+                    const humidityValue = Number(resultsForm.lab_humidity)
+                    if (
+                      resultsForm.lab_humidity !== '' &&
+                      !Number.isNaN(humidityValue) &&
+                      relativeHumidity
+                    ) {
+                      if (
+                        (relativeHumidity.min_value !== null &&
+                          humidityValue < relativeHumidity.min_value) ||
+                        (relativeHumidity.max_value !== null &&
+                          humidityValue > relativeHumidity.max_value)
+                      ) {
+                        setToast({
+                          open: true,
+                          message:
+                            'La humedad relativa esta fuera del rango del termohigrometro.',
+                          severity: 'error',
+                        })
+                        setIsSavingResults(false)
+                        return
+                      }
+                    }
+                    const tempValueC = convertTemperatureToC(
+                      resultsForm.lab_temperature,
+                      resultsForm.lab_temperature_unit
+                    )
+                    if (
+                      resultsForm.lab_temperature !== '' &&
+                      tempValueC !== null &&
+                      temperature
+                    ) {
+                      if (
+                        (temperature.min_value !== null &&
+                          tempValueC < temperature.min_value) ||
+                        (temperature.max_value !== null &&
+                          tempValueC > temperature.max_value)
+                      ) {
+                        setToast({
+                          open: true,
+                          message:
+                            'La temperatura del laboratorio esta fuera del rango del termohigrometro.',
+                          severity: 'error',
+                        })
+                        setIsSavingResults(false)
+                        return
+                      }
+                    }
+                  }
                   if (resultsForm.lab_temp_error) {
                     setToast({
                       open: true,
                       message:
                         'La temperatura del laboratorio debe estar a <= 5 F del promedio.',
+                      severity: 'error',
+                    })
+                    setIsSavingResults(false)
+                    return
+                  }
+                  if (
+                    createForm.analyses.includes('water_astm_4377') &&
+                    (!String(resultsForm.water.kf_factor_avg || '').trim() ||
+                      !String(resultsForm.water.kf_equipment_id || '').trim())
+                  ) {
+                    setToast({
+                      open: true,
+                      message:
+                        'Selecciona el equipo KF y el factor promedio para el analisis de agua.',
+                      severity: 'error',
+                    })
+                    setIsSavingResults(false)
+                    return
+                  }
+                  if (
+                    createForm.analyses.includes('water_astm_4377') &&
+                    (!String(resultsForm.water.water_balance_id || '').trim() ||
+                      !String(resultsForm.water.water_sample_weight || '').trim() ||
+                      !String(resultsForm.water.water_sample_weight_unit || '').trim() ||
+                      !String(resultsForm.water.water_volume_consumed || '').trim() ||
+                      !String(resultsForm.water.water_volume_unit || '').trim())
+                  ) {
+                    setToast({
+                      open: true,
+                      message:
+                        'Selecciona la balanza, el peso, la unidad y el volumen para el analisis de agua.',
                       severity: 'error',
                     })
                     setIsSavingResults(false)
@@ -1388,6 +2244,30 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                           resultsForm.water.value === ''
                             ? null
                             : Number(resultsForm.water.value),
+                        kf_factor_avg:
+                          resultsForm.water.kf_factor_avg === ''
+                            ? null
+                            : Number(resultsForm.water.kf_factor_avg),
+                        kf_equipment_id:
+                          resultsForm.water.kf_equipment_id === ''
+                            ? null
+                            : Number(resultsForm.water.kf_equipment_id),
+                        water_balance_id:
+                          resultsForm.water.water_balance_id === ''
+                            ? null
+                            : Number(resultsForm.water.water_balance_id),
+                        water_sample_weight:
+                          resultsForm.water.water_sample_weight === ''
+                            ? null
+                            : Number(resultsForm.water.water_sample_weight),
+                        water_sample_weight_unit:
+                          resultsForm.water.water_sample_weight_unit || null,
+                        water_volume_consumed:
+                          resultsForm.water.water_volume_consumed === ''
+                            ? null
+                            : Number(resultsForm.water.water_volume_consumed),
+                        water_volume_unit:
+                          resultsForm.water.water_volume_unit || null,
                       }
                     }
                     return {
@@ -1399,23 +2279,23 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                     tokenType,
                     accessToken,
                     sampleId: createdSample.id,
-                  payload: {
-                    product_name: resultsForm.product_name || 'Crudo',
-                    analyzed_at: analyzedAt,
-                    identifier: resultsForm.identifier || null,
-                    lab_humidity:
-                      resultsForm.lab_humidity === ''
-                        ? null
+                    payload: {
+                      product_name: resultsForm.product_name || 'Crudo',
+                      analyzed_at: analyzedAt,
+                      identifier: resultsForm.identifier || null,
+                      lab_humidity:
+                        resultsForm.lab_humidity === ''
+                          ? null
                           : Number(resultsForm.lab_humidity),
                       lab_temperature:
                         resultsForm.lab_temperature === ''
                           ? null
                           : Number(
-                              convertTemperatureToF(
-                                resultsForm.lab_temperature,
-                                resultsForm.lab_temperature_unit
-                              )
-                            ),
+                            convertTemperatureToF(
+                              resultsForm.lab_temperature,
+                              resultsForm.lab_temperature_unit
+                            )
+                          ),
                       analyses,
                     },
                   })
@@ -1521,3 +2401,5 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
 }
 
 export default SamplesTable
+
+
