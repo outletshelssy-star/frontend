@@ -141,11 +141,28 @@ const EquipmentsTable = ({
   accessToken,
   onEquipmentChanged,
 }) => {
-  const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [activeFilter, setActiveFilter] = useState('active')
+  const getStoredFilterValue = (key, fallback) => {
+    if (typeof window === 'undefined') return fallback
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    try {
+      return JSON.parse(raw)
+    } catch (err) {
+      return raw
+    }
+  }
+
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('equipment.filters.query', '')
+  )
+  const [statusFilter, setStatusFilter] = useState(() =>
+    getStoredFilterValue('equipment.filters.status', 'all')
+  )
+  const [activeFilter, setActiveFilter] = useState(() =>
+    getStoredFilterValue('equipment.filters.active', 'active')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('serial')
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -165,12 +182,12 @@ const EquipmentsTable = ({
   const [isCalibrationWaitOpen, setIsCalibrationWaitOpen] = useState(false)
   const [calibrationEquipment, setCalibrationEquipment] = useState(null)
   const [calibrationFile, setCalibrationFile] = useState(null)
+  const [calibrationCertificateUrl, setCalibrationCertificateUrl] = useState('')
   const [calibrationEditMode, setCalibrationEditMode] = useState(false)
   const [calibrationEditingId, setCalibrationEditingId] = useState(null)
   const [calibrationForm, setCalibrationForm] = useState({
     calibrated_at: '',
     calibration_company_id: '',
-    calibration_company_name: '',
     certificate_number: '',
     notes: '',
   })
@@ -282,6 +299,30 @@ const EquipmentsTable = ({
     query.trim().length > 0 ||
     statusFilter !== 'all' ||
     (canFilterActive && activeFilter !== 'active')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipment.filters.query',
+      JSON.stringify(query)
+    )
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipment.filters.status',
+      JSON.stringify(statusFilter)
+    )
+  }, [statusFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipment.filters.active',
+      JSON.stringify(activeFilter)
+    )
+  }, [activeFilter])
 
   useEffect(() => {
     const uniqueTypeIds = Array.from(
@@ -834,8 +875,8 @@ const EquipmentsTable = ({
           return false
         }
       }
-      const matchesStatus =
-        statusFilter === 'all' ? true : item.status === statusFilter
+    const matchesStatus =
+      statusFilter === 'all' ? true : item.status === statusFilter
       const serial = String(item.serial || '').toLowerCase()
       const model = String(item.model || '').toLowerCase()
       const brand = String(item.brand || '').toLowerCase()
@@ -1053,6 +1094,14 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     return match?.name || String(terminalId)
   }
 
+  const getCompanyNameById = (companyId) => {
+    if (!companyId) return '-'
+    const match = (companies || []).find(
+      (company) => String(company?.id) === String(companyId)
+    )
+    return match?.name || String(companyId)
+  }
+
   const formatDateTime = (value) =>
     value ? new Date(value).toLocaleString() : '-'
 
@@ -1140,6 +1189,24 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     return (equipmentTypes || []).find((type) => type.id === equipment.equipment_type_id) || null
   }
 
+  const getFileNameFromUrl = (url = '') => {
+    if (!url) return ''
+    try {
+      const withoutQuery = url.split('?')[0]
+      const parts = withoutQuery.split('/')
+      const rawName = parts[parts.length - 1] || ''
+      return decodeURIComponent(rawName)
+    } catch (err) {
+      return ''
+    }
+  }
+
+  const getCertificateLabel = () => {
+    if (calibrationFile) return calibrationFile.name
+    const name = getFileNameFromUrl(calibrationCertificateUrl)
+    return name || 'Sin archivo seleccionado'
+  }
+
   const getInspectionFrequencyLabel = (equipment) => {
     const equipmentType = getEquipmentTypeFor(equipment)
     const days =
@@ -1149,6 +1216,17 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     }
     return `Cada ${days} dias`
   }
+
+  const hasInspectionSchedule = (equipment) => {
+    const equipmentType = getEquipmentTypeFor(equipment)
+    const days =
+      equipment?.inspection_days_override ?? equipmentType?.inspection_days
+    return Number(days) > 0
+  }
+
+  const shouldSkipInspection = (equipment) =>
+    isWeightEquipmentType(getEquipmentTypeFor(equipment)) &&
+    !hasInspectionSchedule(equipment)
 
   const getInspectionTooltip = (equipment) => {
     const last = getLastInspectionDateLabel(equipment?.inspections)
@@ -1193,8 +1271,8 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     return valid.reduce((max, current) => (current.date > max.date ? current : max))
   }
 
-  const renderCalibrationBadge = (calibrations = []) => {
-    const hasCalibration = Array.isArray(calibrations) && calibrations.length > 0
+  const renderCalibrationBadge = (equipment) => {
+    const isValid = isCalibrationVigente(equipment)
     return (
       <Box
         component="span"
@@ -1202,10 +1280,10 @@ const normalizeWeightSerial = (serial, nominalValue) => {
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: hasCalibration ? '#16a34a' : '#dc2626',
+          color: isValid ? '#16a34a' : '#dc2626',
         }}
       >
-        {hasCalibration ? <CheckCircle fontSize="small" /> : <Cancel fontSize="small" />}
+        {isValid ? <CheckCircle fontSize="small" /> : <Cancel fontSize="small" />}
       </Box>
     )
   }
@@ -1366,6 +1444,20 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       weight2: weight2 ? weight2[1] : null,
       volume2: volume2 ? volume2[1] : null,
     }
+  }
+
+  const stripKarlFischerNotes = (notes = '') => {
+    const text = String(notes || '')
+    const kfMarker = '[[KF_DATA]]'
+    const markerIndex = text.indexOf(kfMarker)
+    if (markerIndex >= 0) {
+      return text.slice(0, markerIndex).trim()
+    }
+    const legacyMarker = 'verificacion karl fischer'
+    const lower = text.toLowerCase()
+    const index = lower.indexOf(legacyMarker)
+    if (index < 0) return text.trim()
+    return text.slice(0, index).trim()
   }
 
   const parseDifferenceToF = (notes = '') => {
@@ -1704,8 +1796,9 @@ const normalizeWeightSerial = (serial, nominalValue) => {
 
   const parseComparisonFromNotes = (notes) => {
     const text = String(notes || '')
-    const marker = 'Comparacion '
-    const markerIndex = text.indexOf(marker)
+    const marker = 'comparacion '
+    const lowerText = text.toLowerCase()
+    const markerIndex = lowerText.indexOf(marker)
     if (markerIndex < 0) {
       return { cleanNotes: text, parsed: null }
     }
@@ -1723,6 +1816,18 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       return { cleanNotes: text, parsed: null }
     }
     const patronId = patronPart.split(':')[1]?.trim() || ''
+    if (lowerComparison.startsWith('comparacion balanza')) {
+      const comparison = parseBalanceComparisonFromNotes(comparisonText)
+      const balanceValue = comparison.balance
+      const match = balanceValue ? balanceValue.match(/[-+]?\d*\.?\d+/) : null
+      return {
+        cleanNotes,
+        parsed: {
+          reference_equipment_id: patronId,
+          balance_reading_value: match ? match[0] : '',
+        },
+      }
+    }
     if (lowerComparison.startsWith('comparacion cinta')) {
       const workMatch = comparisonText.match(/Lecturas equipo:\s*\[([^\]]+)\]\s*([a-zA-Z]+)/i)
       const refMatch = comparisonText.match(/Lecturas patron:\s*\[([^\]]+)\]\s*([a-zA-Z]+)/i)
@@ -1800,7 +1905,7 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       part.toLowerCase().startsWith('lectura patron:'),
     )
     if (!lecturaEquipoPart || !lecturaPatronPart) {
-      return { cleanNotes: text, parsed: null }
+      return { cleanNotes, parsed: null }
     }
     const lecturaEquipoRaw = lecturaEquipoPart.split(':')[1]?.trim() || ''
     const lecturaPatronRaw = lecturaPatronPart.split(':')[1]?.trim() || ''
@@ -2116,10 +2221,10 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       calibration_company_id: calibration.calibration_company_id
         ? String(calibration.calibration_company_id)
         : '',
-      calibration_company_name: calibration.calibration_company_name || '',
       certificate_number: calibration.certificate_number || '',
       notes: calibration.notes || '',
     })
+    setCalibrationCertificateUrl(calibration.certificate_pdf_url || '')
     const results = Array.isArray(calibration.results) ? calibration.results : []
     const mappedResults = results.length
       ? results.map((row) => ({
@@ -2179,13 +2284,13 @@ const normalizeWeightSerial = (serial, nominalValue) => {
         calibrated_at: canEditCalibrationDate
           ? new Date(latest.calibrated_at).toISOString().slice(0, 10)
           : '',
-        calibration_company_id: latest.calibration_company_id
-          ? String(latest.calibration_company_id)
-          : '',
-        calibration_company_name: latest.calibration_company_name || '',
-        certificate_number: latest.certificate_number || '',
-        notes: latest.notes || '',
-      })
+      calibration_company_id: latest.calibration_company_id
+        ? String(latest.calibration_company_id)
+        : '',
+      certificate_number: latest.certificate_number || '',
+      notes: latest.notes || '',
+    })
+      setCalibrationCertificateUrl(latest.certificate_pdf_url || '')
       const results = Array.isArray(latest.results) ? latest.results : []
       const mapped = results.length
         ? results.map((row) => ({
@@ -2227,10 +2332,10 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       setCalibrationForm({
         calibrated_at: canEditCalibrationDate ? today : '',
         calibration_company_id: '',
-        calibration_company_name: '',
         certificate_number: '',
         notes: '',
       })
+      setCalibrationCertificateUrl('')
       const fresh = isScale
         ? []
         : [getEmptyCalibrationRow(isHydrometer ? 'api' : isWeight ? 'g' : isKarlFischer ? 'ml' : '')]
@@ -2254,7 +2359,6 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     setCalibrationForm({
       calibrated_at: '',
       calibration_company_id: '',
-      calibration_company_name: '',
       certificate_number: '',
       notes: '',
     })
@@ -2262,6 +2366,7 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     setCalibrationResultsTemp([])
     setCalibrationResultsHumidity([])
     setCalibrationFile(null)
+    setCalibrationCertificateUrl('')
     setCalibrationEditMode(false)
     setCalibrationEditingId(null)
   }
@@ -2350,9 +2455,12 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     const { cleanNotes, parsed } = isHydrometer
       ? { cleanNotes: stripHydrometerNotes(rawNotes), parsed: null }
       : parseComparisonFromNotes(verification.notes || '')
-    const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes || rawNotes)
+    const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes)
+    const cleanedKfNotes = isKarlFischerEquipment(viewEquipment)
+      ? stripKarlFischerNotes(rawNotes)
+      : cleanedHydrometerNotes
     const kfParsed = parseKarlFischerNotes(verification.notes || '')
-    const normalizedNotes = cleanedHydrometerNotes || ''
+    const normalizedNotes = cleanedKfNotes || ''
     const shouldClearNotes = isHydrometer
     const hydrometerParsed = parseHydrometerMonthlyFromNotes(verification.notes || '')
     const monthlyFromApi = {
@@ -2390,7 +2498,7 @@ const normalizeWeightSerial = (serial, nominalValue) => {
       thermometer_unit: hydrometerParsed?.thermometer_unit || 'c',
       reading_under_test_f: parsed?.reading_under_test_f || '',
       reference_reading_f: parsed?.reference_reading_f || '',
-      balance_reading_value: '',
+      balance_reading_value: parsed?.balance_reading_value || '',
       balance_unit: 'g',
       reading_under_test_high_value:
         parsed?.reading_under_test_high_value ||
@@ -2652,8 +2760,11 @@ const normalizeWeightSerial = (serial, nominalValue) => {
           const { cleanNotes, parsed } = isHydrometer
             ? { cleanNotes: stripHydrometerNotes(rawNotes), parsed: null }
             : parseComparisonFromNotes(latest.notes || '')
-          const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes || rawNotes)
-          const normalizedNotes = cleanedHydrometerNotes || ''
+          const cleanedHydrometerNotes = stripHydrometerNotes(cleanNotes)
+          const cleanedKfNotes = isKarlFischerEquipment(equipment)
+            ? stripKarlFischerNotes(rawNotes)
+            : cleanedHydrometerNotes
+          const normalizedNotes = cleanedKfNotes || ''
           const shouldClearNotes = isHydrometer
           const hydrometerParsed = parseHydrometerMonthlyFromNotes(latest.notes || '')
           const kfParsed = parseKarlFischerNotes(latest.notes || '')
@@ -2705,6 +2816,8 @@ const normalizeWeightSerial = (serial, nominalValue) => {
               prev.reading_unit_under_test,
             reference_reading_f:
               parsed?.reference_reading_f || prev.reference_reading_f,
+            balance_reading_value:
+              parsed?.balance_reading_value || prev.balance_reading_value,
             reading_unit_reference:
               parsed?.reading_unit_reference ||
               monthlyFromApi.reading_unit_reference ||
@@ -3109,7 +3222,7 @@ applyMeasureSpecs(specList, measures)
                               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                                 <Tooltip title={getCalibrationTooltip(item)} arrow placement="top">
                                   <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                                    {renderCalibrationBadge(item?.calibrations)}
+                                    {renderCalibrationBadge(item)}
                                   </Box>
                                 </Tooltip>
                                 {!isReadOnly ? (
@@ -3128,7 +3241,7 @@ applyMeasureSpecs(specList, measures)
                               </Box>
                             </TableCell>
                             <TableCell align="center">
-                              {isWeightEquipmentType(item?.equipment_type) ? (
+                              {shouldSkipInspection(item) ? (
                                 <Typography variant="caption" color="text.secondary">
                                   No aplica
                                 </Typography>
@@ -3306,7 +3419,7 @@ applyMeasureSpecs(specList, measures)
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -3333,6 +3446,7 @@ applyMeasureSpecs(specList, measures)
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -3341,6 +3455,7 @@ applyMeasureSpecs(specList, measures)
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
@@ -4535,7 +4650,7 @@ applyMeasureSpecs(specList, measures)
                 <Typography variant="subtitle2" color="text.secondary">
                   Inspecciones
                 </Typography>
-                {isWeightEquipmentType(viewEquipment?.equipment_type) ? (
+                {shouldSkipInspection(viewEquipment) ? (
                   <Typography variant="body2" color="text.secondary">
                     No aplica
                   </Typography>
@@ -4547,7 +4662,8 @@ applyMeasureSpecs(specList, measures)
                     </Typography>
                     <Button
                       variant="outlined"
-                      size="small"
+              size="small"
+              sx={{ height: 40 }}
                       onClick={openInspectionHistory}
                     >
                       Ver inspecciones
@@ -4588,7 +4704,8 @@ applyMeasureSpecs(specList, measures)
                           </Typography>
                           <Button
                             variant="outlined"
-                            size="small"
+              size="small"
+              sx={{ height: 40 }}
                             onClick={() => openVerificationHistory('')}
                           >
                             Ver verificaciones
@@ -4621,7 +4738,8 @@ applyMeasureSpecs(specList, measures)
                         </Typography>
                         <Button
                           variant="outlined"
-                          size="small"
+              size="small"
+              sx={{ height: 40 }}
                           onClick={() => openVerificationHistory(typeItem.id)}
                         >
                           Ver verificaciones
@@ -4636,13 +4754,14 @@ applyMeasureSpecs(specList, measures)
                   Calibraciones
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  {renderCalibrationBadge(viewEquipment?.calibrations)}
+                  {renderCalibrationBadge(viewEquipment)}
                   <Typography variant="body2">
                     Ultima: {getLastCalibrationDateLabel(viewEquipment?.calibrations)}
                   </Typography>
                   <Button
                     variant="outlined"
-                    size="small"
+              size="small"
+              sx={{ height: 40 }}
                     onClick={() => openCalibrationHistory(viewEquipment)}
                   >
                     Ver calibraciones
@@ -4734,7 +4853,7 @@ applyMeasureSpecs(specList, measures)
               <Typography color="text.secondary">Sin inspecciones.</Typography>
             ) : (
               <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
-                <Table size="medium" stickyHeader>
+                <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
                       <TableCell>Fecha</TableCell>
@@ -4798,7 +4917,7 @@ applyMeasureSpecs(specList, measures)
               <Typography color="text.secondary">Sin calibraciones.</Typography>
             ) : (
               <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
-                <Table size="medium" stickyHeader>
+                <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
                       <TableCell>Fecha</TableCell>
@@ -4813,11 +4932,9 @@ applyMeasureSpecs(specList, measures)
                     {[...(viewEquipment?.calibrations || [])]
                       .sort((a, b) => new Date(b.calibrated_at) - new Date(a.calibrated_at))
                       .map((calibration) => {
-                        const companyLabel =
-                          calibration?.calibration_company_name ||
-                          (calibration?.calibration_company_id
-                            ? `Empresa ${calibration.calibration_company_id}`
-                            : '-')
+                        const companyLabel = calibration?.calibration_company_id
+                          ? getCompanyNameById(calibration.calibration_company_id)
+                          : '-'
                         return (
                           <TableRow key={calibration.id}>
                             <TableCell sx={{ whiteSpace: 'nowrap' }}>
@@ -4974,7 +5091,7 @@ applyMeasureSpecs(specList, measures)
                 <Typography color="text.secondary">Sin verificaciones.</Typography>
               ) : (
                 <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
-                  <Table size="medium" stickyHeader>
+                  <Table size="small" stickyHeader>
                     <TableHead>
                       {isBalanceEquipment(viewEquipment) ? (
                         <TableRow>
@@ -6395,12 +6512,21 @@ applyMeasureSpecs(specList, measures)
                       sx={{
                         display: 'grid',
                         gap: 1,
-                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
+                        gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr' },
                         alignItems: 'center',
                         mt: 0.75,
                       }}
                     >
-                      <FormControl size="small" fullWidth>
+                      <FormControl
+                        size="small"
+                        fullWidth
+                        sx={{
+                          gridColumn: {
+                            xs: '1 / -1',
+                            sm: requiresBalanceComparison ? '1 / span 2' : '1 / -1',
+                          },
+                        }}
+                      >
                         <InputLabel id="reference-equipment-label">
                           {requiresBalanceComparison ? 'Pesa patron' : 'Equipo patron'}
                         </InputLabel>
@@ -6608,7 +6734,7 @@ applyMeasureSpecs(specList, measures)
                           const w = Number(verificationForm.kf_weight_1)
                           const v = Number(verificationForm.kf_volume_1)
                           if (!v || Number.isNaN(w) || Number.isNaN(v)) return ''
-                          return (w / v).toFixed(6)
+                          return (w / v).toFixed(4)
                         })()}
                         InputProps={{ readOnly: true }}
                       />
@@ -6619,7 +6745,7 @@ applyMeasureSpecs(specList, measures)
                         gap: 1,
                         gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' },
                         alignItems: 'center',
-                        mt: 1,
+                        mt: 0.5,
                       }}
                     >
                       <TextField
@@ -6653,7 +6779,7 @@ applyMeasureSpecs(specList, measures)
                           const w = Number(verificationForm.kf_weight_2)
                           const v = Number(verificationForm.kf_volume_2)
                           if (!v || Number.isNaN(w) || Number.isNaN(v)) return ''
-                          return (w / v).toFixed(6)
+                          return (w / v).toFixed(4)
                         })()}
                         InputProps={{ readOnly: true }}
                       />
@@ -6681,7 +6807,7 @@ applyMeasureSpecs(specList, measures)
                         return (
                           <>
                             <Typography variant="caption" color="text.secondary">
-                              Factor promedio: {avg.toFixed(6)} mg/mL | Error relativo: {err.toFixed(3)}%
+                              Factor promedio: {avg.toFixed(4)} mg/mL | Error relativo: {err.toFixed(3)}%
                             </Typography>
                             <Typography
                               variant="caption"
@@ -7842,6 +7968,7 @@ applyMeasureSpecs(specList, measures)
                 <TextField
                   label="Fecha de calibracion"
                   type="date"
+                  size="small"
                   fullWidth
                   InputLabelProps={{ shrink: true }}
                   value={
@@ -7885,22 +8012,11 @@ applyMeasureSpecs(specList, measures)
                     </MenuItem>
                   ))}
                 </Select>
-                <FormHelperText>
-                  Selecciona una empresa registrada o escribe una nueva abajo.
-                </FormHelperText>
+                <FormHelperText />
               </FormControl>
               <TextField
-                label="Empresa (otra)"
-                value={calibrationForm.calibration_company_name}
-                onChange={(event) =>
-                  setCalibrationForm((prev) => ({
-                    ...prev,
-                    calibration_company_name: event.target.value,
-                  }))
-                }
-              />
-              <TextField
                 label="No. certificado"
+                size="small"
                 value={calibrationForm.certificate_number}
                 onChange={(event) =>
                   setCalibrationForm((prev) => ({
@@ -7938,7 +8054,8 @@ applyMeasureSpecs(specList, measures)
                           </Typography>
                           <Button
                             size="small"
-                            variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                             onClick={() =>
                               setCalibrationResultsTemp((prev) => [
                                 ...prev,
@@ -8113,7 +8230,8 @@ applyMeasureSpecs(specList, measures)
                           </Typography>
                           <Button
                             size="small"
-                            variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                             onClick={() =>
                               setCalibrationResultsHumidity((prev) => [
                                 ...prev,
@@ -8280,7 +8398,8 @@ applyMeasureSpecs(specList, measures)
                         <Typography sx={{ fontWeight: 600 }}>Resultados de medicion</Typography>
                         <Button
                           size="small"
-                          variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                           onClick={() =>
                             setCalibrationResults((prev) => [
                               ...prev,
@@ -8530,19 +8649,21 @@ applyMeasureSpecs(specList, measures)
                       )
                     })
                   ) : isHydrometerEquipment(calibrationEquipment) ? (
-                    calibrationResults.map((row, index) => (
-                      <Box
-                        key={`cal-row-${index}`}
-                        sx={{
-                          display: 'grid',
-                          gap: 1,
-                          gridTemplateColumns: {
-                            xs: '1fr',
-                            md: '1fr 1fr 1fr 1fr 0.7fr 0.6fr auto',
-                          },
-                          alignItems: 'center',
-                        }}
-                      >
+                    <Box sx={{ display: 'grid', gap: 1.5 }}>
+                      {calibrationResults.map((row, index) => (
+                        <Box
+                          key={`cal-row-${index}`}
+                          sx={{
+                            display: 'grid',
+                            gap: 1,
+                            columnGap: 1.5,
+                            gridTemplateColumns: {
+                              xs: '1fr',
+                              md: 'minmax(120px, 1fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(140px, 1fr) minmax(90px, 0.7fr) minmax(90px, 0.6fr) auto',
+                            },
+                            alignItems: 'center',
+                          }}
+                        >
                         <TextField
                           label="Punto"
                           size="small"
@@ -8635,8 +8756,9 @@ applyMeasureSpecs(specList, measures)
                         >
                           <DeleteOutline fontSize="small" />
                         </IconButton>
-                      </Box>
-                    ))
+                        </Box>
+                      ))}
+                    </Box>
                   ) : isKarlFischerEquipment(calibrationEquipment) ? (
                     calibrationResults.map((row, index) => (
                       <Box
@@ -8960,7 +9082,7 @@ applyMeasureSpecs(specList, measures)
                 />
               </Button>
               <Typography color="text.secondary">
-                {calibrationFile ? calibrationFile.name : 'Sin archivo seleccionado'}
+                {getCertificateLabel()}
               </Typography>
             </Box>
             <TextField
@@ -8980,15 +9102,16 @@ applyMeasureSpecs(specList, measures)
               disabled={isCalibrationLoading}
               onClick={async () => {
                 if (!calibrationEquipment) return
-                const companyId = String(calibrationForm.calibration_company_id || '').trim()
-                const companyName = String(calibrationForm.calibration_company_name || '').trim()
+                const companyId = String(
+                  calibrationForm.calibration_company_id || ''
+                ).trim()
                 const certificateNumber = String(
                   calibrationForm.certificate_number || ''
                 ).trim()
-                if (!companyId && !companyName) {
+                if (!companyId) {
                   setToast({
                     open: true,
-                    message: 'Selecciona una empresa o escribe un nombre.',
+                    message: 'Selecciona una empresa.',
                     severity: 'error',
                   })
                   return
@@ -9110,8 +9233,7 @@ applyMeasureSpecs(specList, measures)
                     canEditCalibrationDate && calibrationForm.calibrated_at
                       ? calibrationForm.calibrated_at
                       : null,
-                  calibration_company_id: companyId ? Number(companyId) : null,
-                  calibration_company_name: companyName || null,
+                  calibration_company_id: Number(companyId),
                   certificate_number: certificateNumber,
                   notes: calibrationForm.notes?.trim() || null,
                   results,

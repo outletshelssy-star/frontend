@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -42,14 +42,34 @@ import {
   updateSample,
 } from '../services/api'
 
-const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessToken }) => {
-  const [selectedTerminalId, setSelectedTerminalId] = useState('')
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
+const SamplesTable = ({
+  terminals,
+  equipments,
+  currentUser,
+  tokenType,
+  accessToken,
+}) => {
+  const [selectedTerminalId, setSelectedTerminalId] = useState(() =>
+    getStoredFilterValue('samples.filters.terminal', '')
+  )
   const [samples, setSamples] = useState([])
   const [samplesError, setSamplesError] = useState('')
   const [isSamplesLoading, setIsSamplesLoading] = useState(false)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('samples.filters.query', '')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortKey, setSortKey] = useState('created_at')
   const [sortDirection, setSortDirection] = useState('desc')
   const [externalAnalyses, setExternalAnalyses] = useState([])
@@ -71,7 +91,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
   const [resultsForm, setResultsForm] = useState({
     product_name: 'Crudo',
     analyzed_at: '',
-    thermohygrometer_name: '',
+    thermohygrometer_id: '',
     lab_humidity: '',
     lab_temperature: '',
     lab_temperature_unit: 'f',
@@ -100,6 +120,19 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     },
   })
   const [kfFactorHelper, setKfFactorHelper] = useState('')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'samples.filters.terminal',
+      JSON.stringify(selectedTerminalId)
+    )
+  }, [selectedTerminalId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('samples.filters.query', JSON.stringify(query))
+  }, [query])
   const [toast, setToast] = useState({
     open: false,
     message: '',
@@ -188,7 +221,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     const brand = String(item.brand || '').trim()
     const model = String(item.model || '').trim()
     const parts = [serial, brand, model].filter(Boolean)
-    return parts.join(' · ') || String(item.internal_code || item.id || '')
+    return parts.join(' - ') || String(item.internal_code || item.id || '')
   }
 
   const activeExternalAnalyses = useMemo(
@@ -220,6 +253,13 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     if (!match) return null
     const value = Number(String(match[1]).replace(',', '.'))
     return Number.isNaN(value) ? null : value
+  }
+
+  const formatKfFactor = (value) => {
+    if (value === null || value === undefined || value === '') return ''
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) return ''
+    return numeric.toFixed(4)
   }
 
   const calculateWaterPercent = (volume, volumeUnit, factor, weight, weightUnit) => {
@@ -454,10 +494,14 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
           return
         }
         setKfFactorHelper('')
-        setResultsForm((prev) => ({
-          ...prev,
-          water: { ...prev.water, kf_factor_avg: String(factor) },
-        }))
+        setResultsForm((prev) => {
+          const current = String(prev.water.kf_factor_avg || '').trim()
+          if (current) return prev
+          return {
+            ...prev,
+            water: { ...prev.water, kf_factor_avg: formatKfFactor(factor) },
+          }
+        })
       } catch (err) {
         if (cancelled) return
         setKfFactorHelper('No se pudo cargar el factor promedio KF.')
@@ -657,6 +701,13 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
     return avgInUnit === null ? '' : avgInUnit.toFixed(2)
   }
 
+  const formatWaterValue = (value) => {
+    if (value === null || value === undefined || value === '') return ''
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) return ''
+    return numeric.toFixed(3)
+  }
+
   const isSampleEmpty = (sample) => {
     if (!sample) return false
     if (sample.lab_humidity !== null || sample.lab_temperature !== null) {
@@ -803,7 +854,10 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
           ? formatDateInput(sample.analyzed_at || sample.created_at)
           : prev.analyzed_at,
       identifier: sample.identifier || '',
-      thermohygrometer_name: sample.thermohygrometer_name || prev.thermohygrometer_name,
+      thermohygrometer_id:
+        sample.thermohygrometer_id !== undefined && sample.thermohygrometer_id !== null
+          ? String(sample.thermohygrometer_id)
+          : prev.thermohygrometer_id,
       lab_humidity:
         sample.lab_humidity !== undefined && sample.lab_humidity !== null
           ? String(sample.lab_humidity)
@@ -872,7 +926,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
         water_volume_unit: waterAnalysis?.water_volume_unit || 'mL',
         kf_factor_avg:
           waterAnalysis?.kf_factor_avg !== undefined && waterAnalysis?.kf_factor_avg !== null
-            ? String(waterAnalysis.kf_factor_avg)
+            ? formatKfFactor(waterAnalysis.kf_factor_avg)
             : '',
       },
     }))
@@ -1098,7 +1152,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                             : null
                           return waterAnalysis?.water_value !== undefined &&
                             waterAnalysis?.water_value !== null
-                            ? waterAnalysis.water_value
+                            ? formatWaterValue(waterAnalysis.water_value) || '-'
                             : '-'
                         })()}
                       </TableCell>
@@ -1152,7 +1206,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -1179,6 +1233,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -1187,6 +1242,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
@@ -1345,7 +1401,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                   ...prev,
                   product_name: 'Crudo',
                   analyzed_at: new Date().toISOString().slice(0, 10),
-                  thermohygrometer_name: '',
+                  thermohygrometer_id: '',
                   lab_humidity: '',
                   lab_temperature: '',
                   lab_temperature_unit: 'f',
@@ -1429,7 +1485,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               const code = createdSample?.code || ''
               const identifier = createdSample?.identifier || ''
               const parts = [terminalName, code, identifier].filter(Boolean)
-              return parts.join(' · ')
+              return parts.join(' - ')
             })()}
           </Box>
         </DialogTitle>
@@ -1496,11 +1552,11 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
               <Select
                 labelId="thermo-label"
                 label="Termohigrometro"
-                value={resultsForm.thermohygrometer_name}
+                value={resultsForm.thermohygrometer_id}
                 onChange={(event) =>
                   setResultsForm((prev) => ({
                     ...prev,
-                    thermohygrometer_name: String(event.target.value || ''),
+                    thermohygrometer_id: String(event.target.value || ''),
                   }))
                 }
               >
@@ -1508,19 +1564,11 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                 {thermohygrometerOptions.map((item) => {
                   const label = getThermoLabel(item)
                   return (
-                    <MenuItem key={item.id} value={label}>
+                    <MenuItem key={item.id} value={String(item.id)}>
                       {label}
                     </MenuItem>
                   )
                 })}
-                {resultsForm.thermohygrometer_name &&
-                !thermohygrometerOptions.some(
-                  (item) => getThermoLabel(item) === resultsForm.thermohygrometer_name
-                ) ? (
-                  <MenuItem value={resultsForm.thermohygrometer_name}>
-                    {resultsForm.thermohygrometer_name}
-                  </MenuItem>
-                ) : null}
               </Select>
             </FormControl>
             <TextField
@@ -1786,6 +1834,70 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                   <Typography variant="subtitle2" color="text.secondary">
                     Agua ASTM 4377
                   </Typography>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="water-balance-label">Balanza</InputLabel>
+                    <Select
+                      labelId="water-balance-label"
+                      label="Balanza"
+                      value={resultsForm.water.water_balance_id}
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, water_balance_id: event.target.value },
+                        }))
+                      }
+                    >
+                      {balanceOptions.map((item) => (
+                        <MenuItem key={item.id} value={String(item.id)}>
+                          {item.serial} - {item.brand} {item.model}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.5,
+                      gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' },
+                    }}
+                  >
+                    <TextField
+                      label="Peso de muestra"
+                      type="number"
+                      value={resultsForm.water.water_sample_weight}
+                      size="small"
+                      fullWidth
+                      disabled={resultsMode === 'view'}
+                      onChange={(event) =>
+                        setResultsForm((prev) => ({
+                          ...prev,
+                          water: { ...prev.water, water_sample_weight: event.target.value },
+                        }))
+                      }
+                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="water-weight-unit-label">Unidad peso</InputLabel>
+                      <Select
+                        labelId="water-weight-unit-label"
+                        label="Unidad peso"
+                        value={resultsForm.water.water_sample_weight_unit || 'g'}
+                        disabled={resultsMode === 'view'}
+                        onChange={(event) =>
+                          setResultsForm((prev) => ({
+                            ...prev,
+                            water: {
+                              ...prev.water,
+                              water_sample_weight_unit: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <MenuItem value="g">g</MenuItem>
+                        <MenuItem value="mg">mg</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
                   <Box
                     sx={{
                       display: 'grid',
@@ -1833,70 +1945,6 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                       }
                     />
                   </Box>
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gap: 1.5,
-                      gridTemplateColumns: { xs: '1fr', sm: '2fr 0.7fr' },
-                    }}
-                  >
-                    <TextField
-                      label="Peso de muestra"
-                      type="number"
-                      value={resultsForm.water.water_sample_weight}
-                      size="small"
-                      fullWidth
-                      disabled={resultsMode === 'view'}
-                      onChange={(event) =>
-                        setResultsForm((prev) => ({
-                          ...prev,
-                          water: { ...prev.water, water_sample_weight: event.target.value },
-                        }))
-                      }
-                    />
-                    <FormControl size="small" fullWidth>
-                      <InputLabel id="water-weight-unit-label">Unidad peso</InputLabel>
-                      <Select
-                        labelId="water-weight-unit-label"
-                        label="Unidad peso"
-                        value={resultsForm.water.water_sample_weight_unit || 'g'}
-                        disabled={resultsMode === 'view'}
-                        onChange={(event) =>
-                          setResultsForm((prev) => ({
-                            ...prev,
-                            water: {
-                              ...prev.water,
-                              water_sample_weight_unit: event.target.value,
-                            },
-                          }))
-                        }
-                      >
-                        <MenuItem value="g">g</MenuItem>
-                        <MenuItem value="mg">mg</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Box>
-                  <FormControl size="small" fullWidth>
-                    <InputLabel id="water-balance-label">Balanza</InputLabel>
-                    <Select
-                      labelId="water-balance-label"
-                      label="Balanza"
-                      value={resultsForm.water.water_balance_id}
-                      disabled={resultsMode === 'view'}
-                      onChange={(event) =>
-                        setResultsForm((prev) => ({
-                          ...prev,
-                          water: { ...prev.water, water_balance_id: event.target.value },
-                        }))
-                      }
-                    >
-                      {balanceOptions.map((item) => (
-                        <MenuItem key={item.id} value={String(item.id)}>
-                          {item.serial} - {item.brand} {item.model}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
                   <Box
                     sx={{
                       display: 'grid',
@@ -1953,7 +2001,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                     }}
                   >
                     <Typography variant="h5" sx={{ fontWeight: 700, color: "#15803d" }}>
-                      {resultsForm.water.value || "--"}
+                        {formatWaterValue(resultsForm.water.value) || "--"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       % Agua
@@ -2109,8 +2157,7 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                     }
                   }
                   const selectedThermo = thermohygrometerOptions.find(
-                    (item) =>
-                      getThermoLabel(item) === resultsForm.thermohygrometer_name
+                    (item) => String(item.id) === String(resultsForm.thermohygrometer_id)
                   )
                   if (selectedThermo) {
                     const { temperature, relativeHumidity } = getThermoSpecs(selectedThermo)
@@ -2283,6 +2330,10 @@ const SamplesTable = ({ terminals, equipments, currentUser, tokenType, accessTok
                       product_name: resultsForm.product_name || 'Crudo',
                       analyzed_at: analyzedAt,
                       identifier: resultsForm.identifier || null,
+                      thermohygrometer_id:
+                        resultsForm.thermohygrometer_id === ''
+                          ? null
+                          : Number(resultsForm.thermohygrometer_id),
                       lab_humidity:
                         resultsForm.lab_humidity === ''
                           ? null

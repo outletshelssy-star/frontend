@@ -72,7 +72,20 @@ const DashBoard = () => {
   const [equipments, setEquipments] = useState([])
   const [equipmentsError, setEquipmentsError] = useState('')
   const [isEquipmentsLoading, setIsEquipmentsLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('all')
+  const getStoredFilterValue = (key, fallback) => {
+    if (typeof window === 'undefined') return fallback
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    try {
+      return JSON.parse(raw)
+    } catch (err) {
+      return raw
+    }
+  }
+
+  const [statusFilter, setStatusFilter] = useState(() =>
+    getStoredFilterValue('users.filters.status', 'all')
+  )
   const lastUserIdRef = useRef(null)
 
   const handleLogout = async () => {
@@ -191,7 +204,17 @@ const DashBoard = () => {
     if (lastUserIdRef.current === currentUser.id) return
     lastUserIdRef.current = currentUser.id
     const userRole = String(currentUser.user_type || '').toLowerCase()
-    setActiveSection(userRole === 'visitor' ? 'profile' : 'dashboard')
+    if (userRole === 'visitor') {
+      setActiveSection('profile')
+      return
+    }
+    if (typeof window !== 'undefined') {
+      const savedSection = window.localStorage.getItem('ui.activeSection')
+      if (savedSection) {
+        return
+      }
+    }
+    setActiveSection('dashboard')
   }, [currentUser, setActiveSection])
 
   useEffect(() => {
@@ -249,6 +272,14 @@ const DashBoard = () => {
     loadEquipmentTypes,
     loadEquipments,
   ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'users.filters.status',
+      JSON.stringify(statusFilter)
+    )
+  }, [statusFilter])
 
   const renderContent = () => {
     switch (activeSection) {

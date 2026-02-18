@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Add,
   DeleteOutline,
@@ -35,6 +35,17 @@ import {
 } from '@mui/material'
 import { createCompany, deleteCompany, fetchCompanyById, updateCompany } from '../services/api'
 
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
+
 const CompaniesTable = ({
   companies,
   companiesError,
@@ -43,10 +54,14 @@ const CompaniesTable = ({
   accessToken,
   onCompanyChanged,
 }) => {
-  const [query, setQuery] = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('companies.filters.query', '')
+  )
+  const [typeFilter, setTypeFilter] = useState(() =>
+    getStoredFilterValue('companies.filters.type', 'all')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -70,6 +85,22 @@ const CompaniesTable = ({
   })
 
   const hasActiveFilters = query.trim().length > 0 || typeFilter !== 'all'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'companies.filters.query',
+      JSON.stringify(query)
+    )
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'companies.filters.type',
+      JSON.stringify(typeFilter)
+    )
+  }, [typeFilter])
 
   const handleClearFilters = () => {
     setQuery('')
@@ -294,6 +325,14 @@ const CompaniesTable = ({
     }
   }
 
+  const getCompanyTypeLabel = (type) => {
+    const key = String(type || '').toLowerCase()
+    if (key === 'master') return 'Matriz'
+    if (key === 'client') return 'Cliente'
+    if (key === 'partner') return 'Aliado'
+    return type || '-'
+  }
+
   const renderTypeBadge = (type) => {
     const colors =
       type === 'master'
@@ -316,7 +355,7 @@ const CompaniesTable = ({
           backgroundColor: colors.bg,
         }}
       >
-        {type}
+        {getCompanyTypeLabel(type)}
       </Box>
     )
   }
@@ -354,11 +393,11 @@ const CompaniesTable = ({
           justifyContent: 'space-between',
           gap: 2,
           flexWrap: 'wrap',
-          mb: 2,
+          mb: 1,
         }}
       >
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
-          Listado de empresas
+          Empresas
         </Typography>
         <Button
           type="button"
@@ -382,7 +421,7 @@ const CompaniesTable = ({
           }}
           sx={{ minWidth: 280, flex: '1 1 280px' }}
         />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
           <InputLabel id="companies-type-filter">Tipo</InputLabel>
           <Select
             labelId="companies-type-filter"
@@ -394,9 +433,9 @@ const CompaniesTable = ({
             }}
           >
             <MenuItem value="all">Todos</MenuItem>
-            <MenuItem value="master">Master</MenuItem>
-            <MenuItem value="client">Client</MenuItem>
-            <MenuItem value="partner">Partner</MenuItem>
+            <MenuItem value="master">Matriz</MenuItem>
+            <MenuItem value="client">Cliente</MenuItem>
+            <MenuItem value="partner">Aliado</MenuItem>
           </Select>
         </FormControl>
         <Button
@@ -489,7 +528,7 @@ const CompaniesTable = ({
                     {renderStatusBadge(Boolean(company.is_active))}
                   </TableCell>
                   <TableCell align="center">
-                    <Box sx={{ display: 'inline-flex', gap: 1 }}>
+                    <Box sx={{ display: 'inline-flex', gap: 0.5 }}>
                       <IconButton
                         size="small"
                         aria-label="Ver empresa"
@@ -530,7 +569,7 @@ const CompaniesTable = ({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -557,6 +596,7 @@ const CompaniesTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -565,6 +605,7 @@ const CompaniesTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
@@ -611,9 +652,9 @@ const CompaniesTable = ({
                 setFormData((prev) => ({ ...prev, company_type: event.target.value }))
               }
             >
-              <MenuItem value="master">Master</MenuItem>
-              <MenuItem value="client">Client</MenuItem>
-              <MenuItem value="partner">Partner</MenuItem>
+              <MenuItem value="master">Matriz</MenuItem>
+              <MenuItem value="client">Cliente</MenuItem>
+              <MenuItem value="partner">Aliado</MenuItem>
             </Select>
           </FormControl>
           <FormControl>
@@ -679,9 +720,9 @@ const CompaniesTable = ({
                 setFormData((prev) => ({ ...prev, company_type: event.target.value }))
               }
             >
-              <MenuItem value="master">Master</MenuItem>
-              <MenuItem value="client">Client</MenuItem>
-              <MenuItem value="partner">Partner</MenuItem>
+              <MenuItem value="master">Matriz</MenuItem>
+              <MenuItem value="client">Cliente</MenuItem>
+              <MenuItem value="partner">Aliado</MenuItem>
             </Select>
           </FormControl>
           <FormControl>

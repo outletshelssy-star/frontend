@@ -57,13 +57,30 @@ const UsersTable = ({
   statusFilter = 'all',
   onStatusFilterChange,
 }) => {
-  const [query, setQuery] = useState('')
+  const getStoredFilterValue = (key, fallback) => {
+    if (typeof window === 'undefined') return fallback
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    try {
+      return JSON.parse(raw)
+    } catch (err) {
+      return raw
+    }
+  }
+
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('users.filters.query', '')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
-  const [roleFilter, setRoleFilter] = useState('all')
-  const [terminalFilter, setTerminalFilter] = useState([])
+  const [roleFilter, setRoleFilter] = useState(() =>
+    getStoredFilterValue('users.filters.role', 'all')
+  )
+  const [terminalFilter, setTerminalFilter] = useState(() =>
+    getStoredFilterValue('users.filters.terminals', [])
+  )
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isViewOpen, setIsViewOpen] = useState(false)
@@ -142,6 +159,24 @@ const UsersTable = ({
     statusFilter !== 'all' ||
     roleFilter !== 'all' ||
     terminalFilter.length > 0
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('users.filters.query', JSON.stringify(query))
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('users.filters.role', JSON.stringify(roleFilter))
+  }, [roleFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'users.filters.terminals',
+      JSON.stringify(terminalFilter)
+    )
+  }, [terminalFilter])
 
   const handleClearFilters = () => {
     setQuery('')
@@ -229,6 +264,7 @@ const UsersTable = ({
     setViewUser(user)
     setIsViewOpen(true)
     if (!accessToken) return
+    await ensureReferenceData()
     try {
       const data = await fetchUserById({
         tokenType,
@@ -581,11 +617,11 @@ const UsersTable = ({
           justifyContent: 'space-between',
           gap: 2,
           flexWrap: 'wrap',
-          mb: 2,
+          mb: 1,
         }}
       >
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
-          Listado de usuarios
+          Usuarios
         </Typography>
         <Button
           type="button"
@@ -932,7 +968,7 @@ const UsersTable = ({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -959,6 +995,7 @@ const UsersTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -967,6 +1004,7 @@ const UsersTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
@@ -1432,21 +1470,33 @@ const UsersTable = ({
       <Dialog
         open={isViewOpen}
         onClose={handleCloseView}
-        fullWidth={false}
-        maxWidth="xs"
-        PaperProps={{ sx: { width: 420, maxWidth: '90vw' } }}
+        fullWidth
+        maxWidth="sm"
       >
-        <DialogTitle sx={{ pb: 2, fontSize: '1.05rem' }}>
-          Detalle de usuario
-        </DialogTitle>
+        <DialogTitle sx={{ pb: 4 }}>Ver usuario</DialogTitle>
         <DialogContent
           sx={{
             display: 'grid',
-            gap: 1.25,
+            gap: 2,
             pt: 1,
-            fontSize: '0.95rem',
+            overflow: 'visible',
+            '& .MuiFormControl-root': {
+              overflow: 'visible',
+            },
+            '& .MuiInputLabel-root': {
+              backgroundColor: '#ffffff',
+              padding: '0 4px',
+            },
+            '& .MuiInputLabel-shrink': {
+              top: 0,
+            },
           }}
         >
+          {formError ? (
+            <Typography className="error" component="p">
+              {formError}
+            </Typography>
+          ) : null}
           <Box
             sx={{
               display: 'grid',
@@ -1455,7 +1505,14 @@ const UsersTable = ({
               alignItems: 'start',
             }}
           >
-            <Box sx={{ display: 'grid', gap: 1, justifyItems: 'center' }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1,
+                justifyItems: 'center',
+                gridRow: { sm: 'span 2' },
+              }}
+            >
               <Avatar
                 src={viewUser?.photo_url || ''}
                 alt={viewUser ? `${viewUser.name} ${viewUser.last_name}` : 'Usuario'}
@@ -1463,110 +1520,136 @@ const UsersTable = ({
               >
                 {viewUser?.name?.charAt(0) || 'U'}
               </Avatar>
-            </Box>
-            <Box sx={{ display: 'grid', gap: 1.25 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Nombre
-              </Typography>
-              <Typography>
-                {viewUser ? `${viewUser.name} ${viewUser.last_name}` : '-'}
-              </Typography>
-              <Typography variant="subtitle2" color="text.secondary">
-                Correo
-              </Typography>
-              <Typography sx={{ fontSize: '0.95rem' }}>
-                {viewUser?.email || '-'}
-              </Typography>
-              <Typography variant="subtitle2" color="text.secondary">
-                Rol
-              </Typography>
-              <Box
-                component="span"
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '999px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  width: 'fit-content',
-                  color:
-                    viewUser?.user_type === 'superadmin'
-                      ? '#5b21b6'
-                      : viewUser?.user_type === 'admin'
-                      ? '#1d4ed8'
-                      : '#0f766e',
-                  backgroundColor:
-                    viewUser?.user_type === 'superadmin'
-                      ? '#ede9fe'
-                      : viewUser?.user_type === 'admin'
-                      ? '#dbeafe'
-                      : '#ccfbf1',
-                }}
+              <Button
+                variant="outlined"
+              size="small"
+              sx={{ height: 40 }}
+                disabled
+                sx={{ textTransform: 'none' }}
               >
-                {viewUser ? formatUserType(viewUser.user_type) : '-'}
-              </Box>
-              <Typography variant="subtitle2" color="text.secondary">
-                Empresa
-              </Typography>
-              <Typography sx={{ fontSize: '0.95rem' }}>
-                {viewUser?.company?.name || 'Sin empresa'}
-              </Typography>
-              <Typography variant="subtitle2" color="text.secondary">
-                Terminales
-              </Typography>
-              {viewUser?.user_type === 'superadmin' ? (
-                <Chip
-                  label="Todos"
-                  size="small"
-                  sx={{
-                    backgroundColor: '#1e3a8a',
-                    color: '#e0f2fe',
-                    fontWeight: 700,
-                    fontSize: '0.7rem',
-                    height: 20,
-                    width: 'fit-content',
-                  }}
-                />
-              ) : Array.isArray(viewUser?.terminals) && viewUser.terminals.length ? (
-                <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
-                  {viewUser.terminals.map((terminal) => (
-                    <Chip
-                      key={terminal.id}
-                      label={terminal.name}
-                      size="small"
-                      sx={getTerminalChipStyle(terminal.name)}
-                    />
-                  ))}
-                </Stack>
-              ) : (
-                <Typography sx={{ fontSize: '0.95rem' }}>Sin terminales</Typography>
-              )}
-              <Typography variant="subtitle2" color="text.secondary">
-                Estado
-              </Typography>
-              <Box
-                component="span"
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '999px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  width: 'fit-content',
-                  color: viewUser?.is_active ? '#166534' : '#991b1b',
-                  backgroundColor: viewUser?.is_active ? '#dcfce7' : '#fee2e2',
-                }}
-              >
-                {viewUser?.is_active ? 'Activo' : 'Inactivo'}
-              </Box>
+                Seleccionar foto
+              </Button>
             </Box>
+            <TextField
+              label="Nombre"
+              value={viewUser?.name || ''}
+              disabled
+              sx={{ mt: 0.5 }}
+            />
+            <TextField
+              label="Apellido"
+              value={viewUser?.last_name || ''}
+              disabled
+            />
+          </Box>
+          <TextField
+            label="Correo"
+            type="email"
+            value={viewUser?.email || ''}
+            disabled
+            autoComplete="off"
+          />
+          <TextField
+            label="Contrasena"
+            type="password"
+            value={viewUser ? '********' : ''}
+            disabled
+          />
+          <FormControl>
+            <InputLabel id="view-user-type-label">Rol</InputLabel>
+            <Select
+              labelId="view-user-type-label"
+              label="Rol"
+              value={viewUser?.user_type || ''}
+              disabled
+            >
+              <MenuItem value="visitor">Visitante</MenuItem>
+              <MenuItem value="user">Usuario</MenuItem>
+              <MenuItem value="admin">Admin</MenuItem>
+              <MenuItem value="superadmin">Superadmin</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl>
+            <InputLabel id="view-company-label">Empresa</InputLabel>
+            <Select
+              labelId="view-company-label"
+              label="Empresa"
+              value={viewUser?.company?.id || viewUser?.company_id || ''}
+              disabled
+            >
+              {companiesLoading ? (
+                <MenuItem value="" disabled>
+                  Cargando empresas...
+                </MenuItem>
+              ) : null}
+              {companies.map((company) => (
+                <MenuItem key={company.id} value={company.id}>
+                  {company.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl>
+            <InputLabel id="view-terminals-label">Terminales</InputLabel>
+            <Select
+              labelId="view-terminals-label"
+              label="Terminales"
+              multiple
+              disabled
+              value={
+                viewUser?.user_type === 'superadmin'
+                  ? []
+                  : Array.isArray(viewUser?.terminal_ids)
+                    ? viewUser.terminal_ids
+                    : Array.isArray(viewUser?.terminals)
+                      ? viewUser.terminals.map((terminal) => terminal.id)
+                      : []
+              }
+              renderValue={(selected) =>
+                viewUser?.user_type === 'superadmin'
+                  ? 'Todos los terminales'
+                  : selected
+                      .map(
+                        (id) => terminals.find((t) => t.id === id)?.name || id
+                      )
+                      .join(', ')
+              }
+            >
+              {terminalsLoading ? (
+                <MenuItem value="" disabled>
+                  Cargando terminales...
+                </MenuItem>
+              ) : null}
+              {terminals.map((terminal) => (
+                <MenuItem key={terminal.id} value={terminal.id}>
+                  {terminal.name}
+                </MenuItem>
+              ))}
+            </Select>
+            {viewUser?.user_type === 'superadmin' ? (
+              <Typography variant="caption" color="text.secondary">
+                Superadmin trabaja en todos los terminales.
+              </Typography>
+            ) : null}
+          </FormControl>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Switch checked={Boolean(viewUser?.is_active)} disabled />
+            <Typography>Usuario activo</Typography>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+        <DialogActions
+          sx={{
+            px: 3,
+            pb: 2,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 1,
+            flexWrap: 'nowrap',
+          }}
+        >
+          <Button onClick={handleCloseView}>Cerrar</Button>
           <Button
-            variant="text"
+            variant="contained"
             startIcon={<EditOutlined fontSize="small" />}
             onClick={() => {
               if (viewUser) {
@@ -1574,11 +1657,9 @@ const UsersTable = ({
                 handleOpenEdit(viewUser)
               }
             }}
-            sx={{ textTransform: 'none', color: '#0f766e' }}
           >
             Editar
           </Button>
-          <Button onClick={handleCloseView}>Cerrar</Button>
         </DialogActions>
       </Dialog>
       <Dialog open={isDeleteOpen} onClose={handleCloseDelete} maxWidth="xs" fullWidth>

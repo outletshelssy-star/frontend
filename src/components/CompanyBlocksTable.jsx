@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Add,
   DeleteOutline,
@@ -40,6 +40,17 @@ import {
   updateCompanyBlock,
 } from '../services/api'
 
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
+
 const CompanyBlocksTable = ({
   blocks,
   blocksError,
@@ -49,11 +60,17 @@ const CompanyBlocksTable = ({
   accessToken,
   onBlockChanged,
 }) => {
-  const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [companyFilter, setCompanyFilter] = useState('all')
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('blocks.filters.query', '')
+  )
+  const [statusFilter, setStatusFilter] = useState(() =>
+    getStoredFilterValue('blocks.filters.status', 'active')
+  )
+  const [companyFilter, setCompanyFilter] = useState(() =>
+    getStoredFilterValue('blocks.filters.company', 'all')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -78,6 +95,27 @@ const CompanyBlocksTable = ({
 
   const hasActiveFilters =
     query.trim().length > 0 || statusFilter !== 'all' || companyFilter !== 'all'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('blocks.filters.query', JSON.stringify(query))
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'blocks.filters.status',
+      JSON.stringify(statusFilter)
+    )
+  }, [statusFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'blocks.filters.company',
+      JSON.stringify(companyFilter)
+    )
+  }, [companyFilter])
 
   const handleClearFilters = () => {
     setQuery('')
@@ -367,11 +405,11 @@ const CompanyBlocksTable = ({
           justifyContent: 'space-between',
           gap: 2,
           flexWrap: 'wrap',
-          mb: 2,
+          mb: 1,
         }}
       >
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
-          Listado de bloques
+          Bloques
         </Typography>
         <Button
           type="button"
@@ -395,7 +433,7 @@ const CompanyBlocksTable = ({
           }}
           sx={{ minWidth: 260, flex: '1 1 260px' }}
         />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
           <InputLabel id="block-company-filter">Empresa</InputLabel>
           <Select
             labelId="block-company-filter"
@@ -414,7 +452,7 @@ const CompanyBlocksTable = ({
             ))}
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
           <InputLabel id="block-status-filter">Estado</InputLabel>
           <Select
             labelId="block-status-filter"
@@ -526,7 +564,7 @@ const CompanyBlocksTable = ({
                     {renderStatusBadge(block.is_active)}
                   </TableCell>
                   <TableCell align="center">
-                    <Box sx={{ display: 'inline-flex', gap: 1 }}>
+                    <Box sx={{ display: 'inline-flex', gap: 0.5 }}>
                       <IconButton
                         size="small"
                         aria-label="Ver bloque"
@@ -567,7 +605,7 @@ const CompanyBlocksTable = ({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -594,6 +632,7 @@ const CompanyBlocksTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -602,6 +641,7 @@ const CompanyBlocksTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >

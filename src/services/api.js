@@ -908,6 +908,43 @@ const uploadExternalAnalysisReport = async ({
   return handleJson(response)
 }
 
+const updateExternalAnalysisRecord = async ({
+  tokenType,
+  accessToken,
+  recordId,
+  payload,
+}) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  return handleJson(response)
+}
+
+const deleteExternalAnalysisRecord = async ({
+  tokenType,
+  accessToken,
+  recordId,
+}) => {
+  const response = await authFetch(
+    `${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      },
+    }
+  )
+  return handleJson(response)
+}
+
 const createUser = async ({ tokenType, accessToken, payload }) => {
   const response = await authFetch(`${apiBaseUrl}/api/v1/users`, {
     method: 'POST',
@@ -1180,4 +1217,6 @@ export {
   createExternalAnalysisRecord,
   fetchExternalAnalysisRecords,
   uploadExternalAnalysisReport,
+  updateExternalAnalysisRecord,
+  deleteExternalAnalysisRecord,
 }

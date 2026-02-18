@@ -7,7 +7,7 @@ const DashboardSummary = ({
   onLogout,
 }) => {
   const items = Array.isArray(equipments)
-    ? equipments.filter((item) => item?.is_active)
+    ? equipments.filter((item) => item?.is_active && item?.status === 'in_use')
     : []
   const today = new Date()
   const startOfToday = new Date(

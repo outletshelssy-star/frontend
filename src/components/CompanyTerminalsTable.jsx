@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Add,
   DeleteOutline,
@@ -48,6 +48,17 @@ import {
   createExternalAnalysisRecord,
 } from '../services/api'
 
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
+
 const CompanyTerminalsTable = ({
   terminals,
   terminalsError,
@@ -58,11 +69,20 @@ const CompanyTerminalsTable = ({
   accessToken,
   onTerminalChanged,
 }) => {
-  const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('active')
-  const [ownerFilter, setOwnerFilter] = useState('all')
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('terminals.filters.query', '')
+  )
+  const [statusFilter, setStatusFilter] = useState(() =>
+    getStoredFilterValue('terminals.filters.status', 'active')
+  )
+  const [ownerFilter, setOwnerFilter] = useState(() =>
+    getStoredFilterValue('terminals.filters.owner', 'all')
+  )
+  const [blockFilter, setBlockFilter] = useState(() =>
+    getStoredFilterValue('terminals.filters.block', 'all')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -103,7 +123,42 @@ const CompanyTerminalsTable = ({
   })
 
   const hasActiveFilters =
-    query.trim().length > 0 || statusFilter !== 'all' || ownerFilter !== 'all'
+    query.trim().length > 0 ||
+    statusFilter !== 'all' ||
+    ownerFilter !== 'all' ||
+    blockFilter !== 'all'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'terminals.filters.query',
+      JSON.stringify(query)
+    )
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'terminals.filters.status',
+      JSON.stringify(statusFilter)
+    )
+  }, [statusFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'terminals.filters.owner',
+      JSON.stringify(ownerFilter)
+    )
+  }, [ownerFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'terminals.filters.block',
+      JSON.stringify(blockFilter)
+    )
+  }, [blockFilter])
 
   const terminalsById = useMemo(() => {
     const map = new Map()
@@ -138,6 +193,7 @@ const CompanyTerminalsTable = ({
     setQuery('')
     setStatusFilter('all')
     setOwnerFilter('all')
+    setBlockFilter('all')
     setPage(1)
   }
 
@@ -153,7 +209,13 @@ const CompanyTerminalsTable = ({
       const matchesOwner =
         ownerFilter === 'all'
           ? true
-          : Number(terminal.owner_company_id) === Number(ownerFilter)
+          : Number(terminal.owner_company_id) === Number(ownerFilter) ||
+            Number(terminal.admin_company_id) === Number(ownerFilter)
+      const matchesBlock =
+        blockFilter === 'all'
+          ? true
+          : Number(terminal.block_id || terminal.block?.id) ===
+            Number(blockFilter)
       const name = String(terminal.name || '').toLowerCase()
       const blockName = String(terminal.block?.name || '').toLowerCase()
       const ownerName = String(terminal.owner_company?.name || '').toLowerCase()
@@ -166,9 +228,9 @@ const CompanyTerminalsTable = ({
         ownerName.includes(normalized) ||
         adminName.includes(normalized) ||
         labLabel.includes(normalized)
-      return matchesStatus && matchesOwner && matchesQuery
+      return matchesStatus && matchesOwner && matchesBlock && matchesQuery
     })
-  }, [terminals, query, statusFilter, ownerFilter, terminalsById])
+  }, [terminals, query, statusFilter, ownerFilter, blockFilter, terminalsById])
 
   const sortedTerminals = useMemo(() => {
     const getValue = (terminal) => {
@@ -719,11 +781,11 @@ const CompanyTerminalsTable = ({
           justifyContent: 'space-between',
           gap: 2,
           flexWrap: 'wrap',
-          mb: 2,
+          mb: 1,
         }}
       >
         <Typography component="h2" variant="h5" sx={{ fontWeight: 700 }}>
-          Listado de terminales
+          Terminales
         </Typography>
         <Button
           type="button"
@@ -747,12 +809,31 @@ const CompanyTerminalsTable = ({
           }}
           sx={{ minWidth: 260, flex: '1 1 260px' }}
         />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel id="terminal-owner-filter">Empresa Propietaria</InputLabel>
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel id="terminal-block-filter">Bloque</InputLabel>
+          <Select
+            labelId="terminal-block-filter"
+            value={blockFilter}
+            label="Bloque"
+            onChange={(event) => {
+              setBlockFilter(event.target.value)
+              setPage(1)
+            }}
+          >
+            <MenuItem value="all">Todos</MenuItem>
+            {blocks.map((block) => (
+              <MenuItem key={block.id} value={block.id}>
+                {block.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="terminal-owner-filter">Empresa</InputLabel>
           <Select
             labelId="terminal-owner-filter"
             value={ownerFilter}
-            label="Empresa Propietaria"
+            label="Empresa"
             onChange={(event) => {
               setOwnerFilter(event.target.value)
               setPage(1)
@@ -863,7 +944,7 @@ const CompanyTerminalsTable = ({
                     direction={sortBy === 'owner' ? sortDir : 'asc'}
                     onClick={() => handleSort('owner')}
                   >
-                    Empresa Propietaria
+                    Propietaria
                   </TableSortLabel>
                 </TableCell>
                 <TableCell align="left">
@@ -872,7 +953,7 @@ const CompanyTerminalsTable = ({
                     direction={sortBy === 'admin' ? sortDir : 'asc'}
                     onClick={() => handleSort('admin')}
                   >
-                    Empresa Administradora
+                    Administradora
                   </TableSortLabel>
                 </TableCell>
                 <TableCell align="left">
@@ -959,7 +1040,7 @@ const CompanyTerminalsTable = ({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 2,
-            mt: 2,
+            mt: 0.5,
           }}
         >
           <Typography className="meta" component="p">
@@ -986,6 +1067,7 @@ const CompanyTerminalsTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage <= 1}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
@@ -994,6 +1076,7 @@ const CompanyTerminalsTable = ({
             <Button
               size="small"
               variant="outlined"
+              sx={{ height: 40 }}
               disabled={safePage >= totalPages}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >

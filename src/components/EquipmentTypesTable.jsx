@@ -1,5 +1,5 @@
-
-import { useMemo, useState } from 'react'
+﻿
+import { useEffect, useMemo, useState } from 'react'
 import {
   Add,
   DeleteOutline,
@@ -60,12 +60,24 @@ const ROLE_OPTIONS = [
 
 const MEASURE_OPTIONS = [
   { value: 'temperature', label: 'Temperatura' },
+  { value: 'relative_humidity', label: 'Humedad relativa' },
   { value: 'pressure', label: 'Presion' },
   { value: 'length', label: 'Longitud' },
   { value: 'weight', label: 'Peso' },
   { value: 'api', label: '°API' },
   { value: 'percent_pv', label: '% p/v' },
 ]
+
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
 
 const EquipmentTypesTable = ({
   equipmentTypes,
@@ -77,11 +89,17 @@ const EquipmentTypesTable = ({
 }) => {
   const getDefaultVerificationTypes = () => []
 
-  const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [roleFilter, setRoleFilter] = useState('all')
+  const [query, setQuery] = useState(() =>
+    getStoredFilterValue('equipmentTypes.filters.query', '')
+  )
+  const [statusFilter, setStatusFilter] = useState(() =>
+    getStoredFilterValue('equipmentTypes.filters.status', 'all')
+  )
+  const [roleFilter, setRoleFilter] = useState(() =>
+    getStoredFilterValue('equipmentTypes.filters.role', 'all')
+  )
   const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [rowsPerPage, setRowsPerPage] = useState(15)
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -134,6 +152,30 @@ const EquipmentTypesTable = ({
 
   const hasActiveFilters =
     query.trim().length > 0 || statusFilter !== 'all' || roleFilter !== 'all'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipmentTypes.filters.query',
+      JSON.stringify(query)
+    )
+  }, [query])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipmentTypes.filters.status',
+      JSON.stringify(statusFilter)
+    )
+  }, [statusFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'equipmentTypes.filters.role',
+      JSON.stringify(roleFilter)
+    )
+  }, [roleFilter])
 
   const handleClearFilters = () => {
     setQuery('')
@@ -933,6 +975,8 @@ const EquipmentTypesTable = ({
           { value: 'k', label: 'K' },
           { value: 'r', label: 'R' },
         ]
+      case 'relative_humidity':
+        return [{ value: '%', label: '%' }]
       case 'weight':
         return [
           { value: 'g', label: 'g' },
@@ -963,6 +1007,8 @@ const EquipmentTypesTable = ({
     switch (measure) {
       case 'temperature':
         return 'c'
+      case 'relative_humidity':
+        return '%'
       case 'weight':
         return 'g'
       case 'length':
@@ -1104,8 +1150,8 @@ const EquipmentTypesTable = ({
                   <Button
                     type="button"
                     size="small"
-                    variant="outlined"
-                    startIcon={<FilterAltOff fontSize="small" />}
+          variant="outlined"
+          startIcon={<FilterAltOff fontSize="small" />}
                     onClick={handleClearFilters}
                     disabled={!hasActiveFilters}
                     sx={{ borderColor: '#c7d2fe', color: '#4338ca', height: 40 }}
@@ -1290,7 +1336,7 @@ const EquipmentTypesTable = ({
                       justifyContent: 'space-between',
                       flexWrap: 'wrap',
                       gap: 2,
-                      mt: 2,
+                      mt: 0.5,
                     }}
                   >
                     <Typography className="meta" component="p">
@@ -1316,7 +1362,8 @@ const EquipmentTypesTable = ({
                       </FormControl>
                       <Button
                         size="small"
-                        variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                         disabled={safePage <= 1}
                         onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                       >
@@ -1324,7 +1371,8 @@ const EquipmentTypesTable = ({
                       </Button>
                       <Button
                         size="small"
-                        variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                         disabled={safePage >= totalPages}
                         onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
                       >
@@ -1485,7 +1533,8 @@ const EquipmentTypesTable = ({
                         </Typography>
                         <Button
                           size="small"
-                          variant="outlined"
+              variant="outlined"
+              sx={{ height: 40 }}
                           onClick={() =>
                             setVerificationTypesForm((prev) => [
                               ...prev,
@@ -1928,7 +1977,8 @@ const EquipmentTypesTable = ({
                         </Typography>
                         <Button
                           variant="outlined"
-                          size="small"
+              size="small"
+              sx={{ height: 40 }}
                           onClick={handleAddVerificationType}
                           disabled={isVerificationTypeLoading}
                         >
@@ -2426,7 +2476,7 @@ const EquipmentTypesTable = ({
                       ) : (
                         <Box
                           sx={{
-                            mt: 1,
+                            mt: 0.5,
                             display: 'grid',
                             gap: 1,
                             gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Box,
@@ -11,6 +11,7 @@ import {
   DialogTitle,
   FormControl,
   InputLabel,
+  IconButton,
   MenuItem,
   Select,
   Snackbar,
@@ -23,15 +24,36 @@ import {
   TextField,
   Typography,
   Paper,
+  Tooltip,
 } from '@mui/material'
-import { Cancel, CheckCircle, FilterAltOff, WarningAmber } from '@mui/icons-material'
+import {
+  Cancel,
+  CheckCircle,
+  DeleteOutline,
+  EditOutlined,
+  FilterAltOff,
+  VisibilityOutlined,
+  WarningAmber,
+} from '@mui/icons-material'
 import {
   createExternalAnalysisRecord,
+  deleteExternalAnalysisRecord,
   fetchExternalAnalysesByTerminal,
   fetchExternalAnalysisRecords,
+  updateExternalAnalysisRecord,
   uploadExternalAnalysisReport,
 } from '../services/api'
 
+const getStoredFilterValue = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const raw = window.localStorage.getItem(key)
+  if (raw === null) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    return raw
+  }
+}
 const ExternalAnalysesTable = ({
   terminals,
   companies,
@@ -39,12 +61,37 @@ const ExternalAnalysesTable = ({
   tokenType,
   accessToken,
 }) => {
-  const [selectedTerminalId, setSelectedTerminalId] = useState('')
+  const [selectedTerminalId, setSelectedTerminalId] = useState(() =>
+    getStoredFilterValue('externalAnalyses.filters.terminal', '')
+  )
   const [analyses, setAnalyses] = useState([])
   const [records, setRecords] = useState([])
-  const [analysisFilter, setAnalysisFilter] = useState('all')
+  const [analysisFilter, setAnalysisFilter] = useState(() =>
+    getStoredFilterValue('externalAnalyses.filters.analysis', 'all')
+  )
   const [isLoading, setIsLoading] = useState(false)
   const [recordsError, setRecordsError] = useState('')
+  const [selectedRecord, setSelectedRecord] = useState(null)
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isViewOpen, setIsViewOpen] = useState(false)
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'externalAnalyses.filters.terminal',
+      JSON.stringify(selectedTerminalId)
+    )
+  }, [selectedTerminalId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(
+      'externalAnalyses.filters.analysis',
+      JSON.stringify(analysisFilter)
+    )
+  }, [analysisFilter])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [form, setForm] = useState({
@@ -136,6 +183,15 @@ const ExternalAnalysesTable = ({
     if (Number.isNaN(date.getTime())) return '-'
     return date.toLocaleDateString()
   }
+  const formatDateInput = (value) => {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
 
   const getDueStatus = (analysis) => {
     const nextDate = analysis?.next_due_at ? new Date(analysis.next_due_at) : null
@@ -179,6 +235,43 @@ const ExternalAnalysesTable = ({
     })
     setReportFile(null)
     setIsCreateOpen(true)
+  }
+
+  const openEdit = (record) => {
+    if (!record) return
+    setSelectedRecord(record)
+    setForm({
+      terminal_id: String(record.terminal_id || ''),
+      analysis_type_id: String(record.analysis_type_id || ''),
+      analysis_company_id: record.analysis_company_id
+        ? String(record.analysis_company_id)
+        : '',
+      performed_at: formatDateInput(record.performed_at),
+      report_number: record.report_number || '',
+      result_value:
+        record.result_value === null || record.result_value === undefined
+          ? ''
+          : String(record.result_value),
+      result_unit: record.result_unit || '',
+      result_uncertainty:
+        record.result_uncertainty === null || record.result_uncertainty === undefined
+          ? ''
+          : String(record.result_uncertainty),
+      method: record.method || '',
+      notes: record.notes || '',
+    })
+    setReportFile(null)
+    setIsEditOpen(true)
+  }
+
+  const openView = (record) => {
+    setSelectedRecord(record)
+    setIsViewOpen(true)
+  }
+
+  const openDelete = (record) => {
+    setSelectedRecord(record)
+    setIsDeleteOpen(true)
   }
 
   const handleSaveRecord = async () => {
@@ -231,6 +324,62 @@ const ExternalAnalysesTable = ({
       setToast({
         open: true,
         message: err?.detail || 'No se pudo registrar el analisis.',
+        severity: 'error',
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleUpdateRecord = async () => {
+    if (!selectedRecord?.id) return
+    if (!form.analysis_type_id) {
+      setToast({
+        open: true,
+        message: 'Selecciona un analisis.',
+        severity: 'error',
+      })
+      return
+    }
+    setIsSaving(true)
+    try {
+      await updateExternalAnalysisRecord({
+        tokenType,
+        accessToken,
+        recordId: selectedRecord.id,
+        payload: {
+          analysis_type_id: Number(form.analysis_type_id),
+          performed_at: form.performed_at || null,
+          report_number: form.report_number?.trim() || null,
+          result_value: form.result_value === '' ? null : Number(form.result_value),
+          result_unit: form.result_unit?.trim() || null,
+          result_uncertainty:
+            form.result_uncertainty === '' ? null : Number(form.result_uncertainty),
+          method: form.method?.trim() || null,
+          analysis_company_id:
+            form.analysis_company_id === '' ? null : Number(form.analysis_company_id),
+          notes: form.notes?.trim() || null,
+        },
+      })
+      if (reportFile) {
+        await uploadExternalAnalysisReport({
+          tokenType,
+          accessToken,
+          recordId: selectedRecord.id,
+          file: reportFile,
+        })
+      }
+      setToast({
+        open: true,
+        message: 'Analisis actualizado correctamente.',
+        severity: 'success',
+      })
+      setIsEditOpen(false)
+      await loadAnalyses(String(selectedTerminalId))
+    } catch (err) {
+      setToast({
+        open: true,
+        message: err?.detail || 'No se pudo actualizar el analisis.',
         severity: 'error',
       })
     } finally {
@@ -485,6 +634,7 @@ const ExternalAnalysesTable = ({
                       <TableCell>Incertidumbre</TableCell>
                       <TableCell>PDF</TableCell>
                       <TableCell>Observaciones</TableCell>
+                      <TableCell>Acciones</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -515,6 +665,43 @@ const ExternalAnalysesTable = ({
                           )}
                         </TableCell>
                         <TableCell>{record.notes || '-'}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="Ver">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openView(record)}
+                                >
+                                  <VisibilityOutlined fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Editar">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openEdit(record)}
+                                  disabled={isVisitor}
+                                >
+                                  <EditOutlined fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Eliminar">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openDelete(record)}
+                                  disabled={isVisitor}
+                                  sx={{ color: '#b91c1c' }}
+                                >
+                                  <DeleteOutline fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -701,6 +888,295 @@ const ExternalAnalysesTable = ({
           <Button onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={handleSaveRecord} disabled={isSaving}>
             {isSaving ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isEditOpen} onClose={() => setIsEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Editar analisis externo</DialogTitle>
+        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2, overflow: 'visible' }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            }}
+          >
+            <FormControl
+              sx={{
+                '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+              }}
+            >
+              <InputLabel id="external-modal-terminal-edit-label">Terminal</InputLabel>
+              <Select
+                labelId="external-modal-terminal-edit-label"
+                label="Terminal"
+                value={form.terminal_id}
+                disabled
+              >
+                {terminalOptions.map((terminal) => (
+                  <MenuItem key={terminal.id} value={String(terminal.id)}>
+                    {terminal.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Fecha"
+              type="date"
+              value={form.performed_at}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, performed_at: event.target.value }))
+              }
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            }}
+          >
+            <FormControl
+              sx={{
+                '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+              }}
+            >
+              <InputLabel id="external-analysis-edit-label">Analisis</InputLabel>
+              <Select
+                labelId="external-analysis-edit-label"
+                label="Analisis"
+                value={form.analysis_type_id}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    analysis_type_id: String(event.target.value || ''),
+                  }))
+                }
+              >
+                {analyses.map((analysis) => (
+                  <MenuItem
+                    key={analysis.analysis_type_id}
+                    value={String(analysis.analysis_type_id)}
+                  >
+                    {analysis.analysis_type_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Metodo"
+              value={form.method}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, method: event.target.value }))
+              }
+            />
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            }}
+          >
+            <FormControl
+              sx={{
+                '& .MuiInputLabel-root': { backgroundColor: '#fff', px: 0.5 },
+              }}
+            >
+              <InputLabel id="external-analysis-company-edit-label">Empresa</InputLabel>
+              <Select
+                labelId="external-analysis-company-edit-label"
+                label="Empresa"
+                value={form.analysis_company_id}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    analysis_company_id: String(event.target.value || ''),
+                  }))
+                }
+              >
+                {companyOptions.map((company) => (
+                  <MenuItem key={company.id} value={String(company.id)}>
+                    {company.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Numero de informe"
+              value={form.report_number}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, report_number: event.target.value }))
+              }
+            />
+          </Box>
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: '2fr 1fr 1fr' }}>
+            <TextField
+              label="Resultado"
+              type="number"
+              value={form.result_value}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, result_value: event.target.value }))
+              }
+            />
+            <TextField
+              label="Unidad"
+              value={form.result_unit}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, result_unit: event.target.value }))
+              }
+            />
+            <TextField
+              label="Incertidumbre"
+              type="number"
+              value={form.result_uncertainty}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, result_uncertainty: event.target.value }))
+              }
+            />
+          </Box>
+          <Button variant="outlined" component="label">
+            {reportFile ? `PDF: ${reportFile.name}` : 'Subir informe (PDF)'}
+            <input
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null
+                setReportFile(file)
+              }}
+            />
+          </Button>
+          <TextField
+            label="Observaciones"
+            value={form.notes}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, notes: event.target.value }))
+            }
+            multiline
+            minRows={3}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsEditOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleUpdateRecord} disabled={isSaving}>
+            {isSaving ? 'Guardando...' : 'Guardar cambios'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isViewOpen} onClose={() => setIsViewOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Detalle de analisis externo</DialogTitle>
+        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+          <TextField label="Fecha" value={formatDate(selectedRecord?.performed_at)} disabled />
+          <TextField
+            label="Analisis"
+            value={selectedRecord?.analysis_type_name || '-'}
+            disabled
+          />
+          <TextField
+            label="Empresa"
+            value={selectedRecord?.analysis_company_name || '-'}
+            disabled
+          />
+          <TextField label="Metodo" value={selectedRecord?.method || '-'} disabled />
+          <TextField
+            label="Numero de informe"
+            value={selectedRecord?.report_number || '-'}
+            disabled
+          />
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: '2fr 1fr 1fr' }}>
+            <TextField
+              label="Resultado"
+              value={
+                selectedRecord?.result_value === null ||
+                selectedRecord?.result_value === undefined
+                  ? '-'
+                  : String(selectedRecord.result_value)
+              }
+              disabled
+            />
+            <TextField label="Unidad" value={selectedRecord?.result_unit || '-'} disabled />
+            <TextField
+              label="Incertidumbre"
+              value={
+                selectedRecord?.result_uncertainty === null ||
+                selectedRecord?.result_uncertainty === undefined
+                  ? '-'
+                  : String(selectedRecord.result_uncertainty)
+              }
+              disabled
+            />
+          </Box>
+          <TextField
+            label="Observaciones"
+            value={selectedRecord?.notes || '-'}
+            disabled
+            multiline
+            minRows={2}
+          />
+          {selectedRecord?.report_pdf_url ? (
+            <Button
+              variant="outlined"
+              component="a"
+              href={selectedRecord.report_pdf_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Ver PDF
+            </Button>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsViewOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Eliminar registro</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {selectedRecord
+              ? `Vas a eliminar el registro de ${selectedRecord.analysis_type_name}.`
+              : 'Vas a eliminar este registro.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsDeleteOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={isDeleting}
+            onClick={async () => {
+              if (!selectedRecord?.id) return
+              setIsDeleting(true)
+              try {
+                await deleteExternalAnalysisRecord({
+                  tokenType,
+                  accessToken,
+                  recordId: selectedRecord.id,
+                })
+                setToast({
+                  open: true,
+                  message: 'Registro eliminado correctamente.',
+                  severity: 'success',
+                })
+                setIsDeleteOpen(false)
+                await loadAnalyses(String(selectedTerminalId))
+              } catch (err) {
+                setToast({
+                  open: true,
+                  message: err?.detail || 'No se pudo eliminar el registro.',
+                  severity: 'error',
+                })
+              } finally {
+                setIsDeleting(false)
+              }
+            }}
+          >
+            {isDeleting ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogActions>
       </Dialog>
