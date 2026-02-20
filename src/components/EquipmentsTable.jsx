@@ -372,18 +372,25 @@ const EquipmentsTable = ({
     }
     const isTape = isTapeEquipment(viewEquipment)
     const isBalance = isBalanceEquipment(viewEquipment)
+    const isKarlFischer = isKarlFischerEquipment(viewEquipment)
     const limit = isTape ? 2 : 0.5
-    const isMonthlyHistory = isMonthlyVerificationType(
-      viewEquipment,
-      verificationHistoryTypeId
-    )
+    const isMonthlyHistory = isTape
+      ? false
+      : isKarlFischer
+        ? false
+        : isMonthlyVerificationType(viewEquipment, verificationHistoryTypeId)
     const points = buildControlChartPointsFromVerifications(
       getFilteredVerifications(viewEquipment),
       isMonthlyHistory,
       isTape,
-      isBalance
+      isBalance,
+      isKarlFischer
     )
     const count = points.filter((p) => {
+      if (isKarlFischer) {
+        if (p.avgFactor == null) return false
+        return p.avgFactor > 5.5 || p.avgFactor < 4.5
+      }
       if (isBalance) {
         if (p.emp == null || p.diffG == null) return false
         return p.diffG > p.emp || p.diffG < -p.emp
@@ -1446,6 +1453,19 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     }
   }
 
+  const getKarlFischerAverageFactor = (verification) => {
+    if (!verification) return null
+    const parsed = parseKarlFischerNotes(verification?.notes || '')
+    const w1 = Number(verification?.kf_weight_1 ?? parsed.weight1)
+    const v1 = Number(verification?.kf_volume_1 ?? parsed.volume1)
+    const w2 = Number(verification?.kf_weight_2 ?? parsed.weight2)
+    const v2 = Number(verification?.kf_volume_2 ?? parsed.volume2)
+    if ([w1, v1, w2, v2].some((val) => Number.isNaN(val) || !val)) return null
+    const f1 = w1 / v1
+    const f2 = w2 / v2
+    return (f1 + f2) / 2
+  }
+
   const stripKarlFischerNotes = (notes = '') => {
     const text = String(notes || '')
     const kfMarker = '[[KF_DATA]]'
@@ -1575,13 +1595,23 @@ const normalizeWeightSerial = (serial, nominalValue) => {
     verifications,
     isMonthly = false,
     isTape = false,
-    isBalance = false
+    isBalance = false,
+    isKarlFischer = false
   ) => {
     return (verifications || [])
       .map((verification) => {
         if (!verification?.verified_at) return null
         const ts = new Date(verification.verified_at).getTime()
         if (Number.isNaN(ts)) return null
+        if (isKarlFischer) {
+          const avgFactor = getKarlFischerAverageFactor(verification)
+          if (avgFactor === null || Number.isNaN(avgFactor)) return null
+          return {
+            ts,
+            dateLabel: new Date(verification.verified_at).toLocaleDateString(),
+            avgFactor,
+          }
+        }
         if (isBalance) {
           let diffG = parseDifferenceToG(verification?.notes)
           if (diffG === null) {
@@ -5093,7 +5123,14 @@ applyMeasureSpecs(specList, measures)
                 <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 520 }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
-                      {isBalanceEquipment(viewEquipment) ? (
+                      {isKarlFischerEquipment(viewEquipment) ? (
+                        <TableRow>
+                          <TableCell>Fecha</TableCell>
+                          <TableCell>Factor</TableCell>
+                          <TableCell>Resultado</TableCell>
+                          {canEditVerificationDate ? <TableCell>Acciones</TableCell> : null}
+                        </TableRow>
+                      ) : isBalanceEquipment(viewEquipment) ? (
                         <TableRow>
                           <TableCell>Fecha</TableCell>
                           <TableCell>Serial pesa</TableCell>
@@ -5128,6 +5165,7 @@ applyMeasureSpecs(specList, measures)
                     </TableHead>
                     <TableBody>
                       {getFilteredVerifications(viewEquipment).map((verification) => {
+                        const isKarlFischer = isKarlFischerEquipment(viewEquipment)
                         const isTape = isTapeEquipment(viewEquipment)
                         const isBalance = isBalanceEquipment(viewEquipment)
                         const comparison = parseVerificationComparison(
@@ -5137,6 +5175,38 @@ applyMeasureSpecs(specList, measures)
                           ? getEquipmentSerialById(comparison.patronId)
                           : '-'
                         const result = renderVerificationResultLabel(verification?.is_ok)
+                        if (isKarlFischer) {
+                          const avg = getKarlFischerAverageFactor(verification)
+                          return (
+                            <TableRow key={verification.id}>
+                              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                {verification?.verified_at
+                                  ? new Date(verification.verified_at).toLocaleDateString()
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                {avg === null ? '-' : `${avg.toFixed(4)} mg/mL`}
+                              </TableCell>
+                              <TableCell sx={{ color: result.color, fontWeight: 600 }}>
+                                {verification?.is_ok === false
+                                  ? 'Fuera de control'
+                                  : result.label}
+                              </TableCell>
+                              {canEditVerificationDate ? (
+                                <TableCell>
+                                  <IconButton
+                                    size="small"
+                                    aria-label="Editar verificacion"
+                                    onClick={() => openVerificationHistoryEdit(verification)}
+                                    sx={{ color: '#64748b', '&:hover': { color: '#0f766e' } }}
+                                  >
+                                    <EditOutlined fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              ) : null}
+                            </TableRow>
+                          )
+                        }
                         if (isBalance) {
                           const balanceComparison = parseBalanceComparisonFromNotes(
                             verification?.notes
@@ -5303,7 +5373,9 @@ applyMeasureSpecs(specList, measures)
             </Box>
             <Box sx={{ display: 'grid', gap: 1 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                {isBalanceEquipment(viewEquipment)
+                {isKarlFischerEquipment(viewEquipment)
+                  ? 'Carta de control (Factor)'
+                  : isBalanceEquipment(viewEquipment)
                   ? 'Carta de control (Diferencia g)'
                   : isTapeEquipment(viewEquipment)
                     ? 'Carta de control (Diferencia mm)'
@@ -5313,7 +5385,8 @@ applyMeasureSpecs(specList, measures)
                 getFilteredVerifications(viewEquipment),
                 isMonthlyVerificationType(viewEquipment, verificationHistoryTypeId),
                 isTapeEquipment(viewEquipment),
-                isBalanceEquipment(viewEquipment)
+                isBalanceEquipment(viewEquipment),
+                isKarlFischerEquipment(viewEquipment)
               ).length === 0 ? (
                 <Typography color="text.secondary">
                   Sin datos para generar la carta de control.
@@ -5330,19 +5403,25 @@ applyMeasureSpecs(specList, measures)
                   {(() => {
                     const isTape = isTapeEquipment(viewEquipment)
                     const isBalance = isBalanceEquipment(viewEquipment)
+                    const isKarlFischer = isKarlFischerEquipment(viewEquipment)
                     const isMonthlyHistory = isTape
                       ? false
-                      : isMonthlyVerificationType(
-                          viewEquipment,
-                          verificationHistoryTypeId
-                        )
+                      : isKarlFischer
+                        ? false
+                        : isMonthlyVerificationType(
+                            viewEquipment,
+                            verificationHistoryTypeId
+                          )
                     const points = buildControlChartPointsFromVerifications(
                       getFilteredVerifications(viewEquipment),
                       isMonthlyHistory,
                       isTape,
-                      isBalance
+                      isBalance,
+                      isKarlFischer
                     )
                     const limit = isTape ? 2 : 0.5
+                    const kfLower = 4.5
+                    const kfUpper = 5.5
                     const maxEmp = isBalance
                       ? Math.max(
                           0,
@@ -5362,6 +5441,9 @@ applyMeasureSpecs(specList, measures)
                           )
                       : null
                     const outOfControlCount = points.filter((p) => {
+                      if (isKarlFischer) {
+                        return p.avgFactor > kfUpper || p.avgFactor < kfLower
+                      }
                       if (isBalance) {
                         if (p.emp == null || p.diffG == null) return false
                         return p.diffG > p.emp || p.diffG < -p.emp
@@ -5385,7 +5467,9 @@ applyMeasureSpecs(specList, measures)
                         ? points.map((p) => p.diffG)
                         : isTape
                           ? points.map((p) => p.diffMm)
-                          : points.map((p) => p.diffF)
+                          : isKarlFischer
+                            ? points.map((p) => p.avgFactor)
+                            : points.map((p) => p.diffF)
                     const numericValues = allValues.filter(
                       (value) => typeof value === 'number' && !Number.isNaN(value)
                     )
@@ -5404,24 +5488,31 @@ applyMeasureSpecs(specList, measures)
                           0.001
                         )
                       : null
-                    const allWithinLimits = isBalance
+                    const allWithinLimits = isKarlFischer
                       ? points.every(
                           (p) =>
-                            p.diffG != null &&
-                            p.emp != null &&
-                            Math.abs(p.diffG) <= p.emp
+                            p.avgFactor != null &&
+                            p.avgFactor >= kfLower &&
+                            p.avgFactor <= kfUpper
                         )
-                      : isMonthlyHistory
+                      : isBalance
                         ? points.every(
                             (p) =>
-                              Math.abs(p.diffHighF) <= limit &&
-                              Math.abs(p.diffMidF) <= limit &&
-                              Math.abs(p.diffLowF) <= limit
+                              p.diffG != null &&
+                              p.emp != null &&
+                              Math.abs(p.diffG) <= p.emp
                           )
-                        : points.every((p) => {
-                            const value = isTape ? p.diffMm : p.diffF
-                            return Math.abs(value) <= limit
-                          })
+                        : isMonthlyHistory
+                          ? points.every(
+                              (p) =>
+                                Math.abs(p.diffHighF) <= limit &&
+                                Math.abs(p.diffMidF) <= limit &&
+                                Math.abs(p.diffLowF) <= limit
+                            )
+                          : points.every((p) => {
+                              const value = isTape ? p.diffMm : p.diffF
+                              return Math.abs(value) <= limit
+                            })
                     const tightRange = isBalance
                       ? Math.max((chartEmp || 0) * 1.2, 0.000001)
                       : limit * 1.2
@@ -5430,16 +5521,29 @@ applyMeasureSpecs(specList, measures)
                       : isBalance
                         ? balanceRange || 0
                         : limit
-                    let dataMin = numericValues.length
-                      ? Math.min(...numericValues, -rangeBase)
-                      : -rangeBase
-                    let dataMax = numericValues.length
-                      ? Math.max(...numericValues, rangeBase)
-                      : rangeBase
+                    let dataMin = 0
+                    let dataMax = 0
+                    if (isKarlFischer) {
+                      dataMin = numericValues.length
+                        ? Math.min(...numericValues, kfLower)
+                        : kfLower
+                      dataMax = numericValues.length
+                        ? Math.max(...numericValues, kfUpper)
+                        : kfUpper
+                    } else {
+                      dataMin = numericValues.length
+                        ? Math.min(...numericValues, -rangeBase)
+                        : -rangeBase
+                      dataMax = numericValues.length
+                        ? Math.max(...numericValues, rangeBase)
+                        : rangeBase
+                    }
                     if (dataMin === dataMax) {
                       const padding = isBalance
                         ? Math.max(Math.abs(dataMin) * 0.1, 0.000001)
-                        : 0.1
+                        : isKarlFischer
+                          ? 0.05
+                          : 0.1
                       dataMin -= padding
                       dataMax += padding
                     }
@@ -5479,13 +5583,21 @@ applyMeasureSpecs(specList, measures)
                                     ? Number(p.diffMm.toFixed(4))
                                     : undefined,
                               }
-                            : {
-                                time: p.ts,
-                                diffF:
-                                  typeof p.diffF === 'number'
-                                    ? Number(p.diffF.toFixed(4))
-                                    : undefined,
-                              }
+                            : isKarlFischer
+                              ? {
+                                  time: p.ts,
+                                  avgFactor:
+                                    typeof p.avgFactor === 'number'
+                                      ? Number(p.avgFactor.toFixed(4))
+                                      : undefined,
+                                }
+                              : {
+                                  time: p.ts,
+                                  diffF:
+                                    typeof p.diffF === 'number'
+                                      ? Number(p.diffF.toFixed(4))
+                                      : undefined,
+                                }
                     )
                     return (
                       <Box sx={{ width: '100%', height: 420, position: 'relative' }}>
@@ -5604,11 +5716,13 @@ applyMeasureSpecs(specList, measures)
                               domain={[dataMin, dataMax]}
                               tick={{ fontSize: 11, fill: '#64748b' }}
                               label={{
-                                value: isBalance
-                                  ? 'Diferencia (g)'
-                                  : isTape
-                                    ? 'Diferencia (mm)'
-                                    : 'Diferencia (F)',
+                                value: isKarlFischer
+                                  ? 'Factor (mg/mL)'
+                                  : isBalance
+                                    ? 'Diferencia (g)'
+                                    : isTape
+                                      ? 'Diferencia (mm)'
+                                      : 'Diferencia (F)',
                                 angle: -90,
                                 position: 'insideLeft',
                                 fill: '#64748b',
@@ -5627,6 +5741,10 @@ applyMeasureSpecs(specList, measures)
                                   highF: 'Alto',
                                   midF: 'Medio',
                                   lowF: 'Bajo',
+                                  avgFactor: 'Factor',
+                                }
+                                if (isKarlFischer) {
+                                  return [`${value} mg/mL`, labelMap[name] || name]
                                 }
                                 if (isBalance) {
                                   return [`${value} g`, labelMap[name] || name]
@@ -5664,6 +5782,31 @@ applyMeasureSpecs(specList, measures)
                                   }}
                                 />
                               </>
+                            ) : isKarlFischer ? (
+                              <>
+                                <ReferenceLine
+                                  y={kfUpper}
+                                  stroke="#f97316"
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: `+${kfUpper.toFixed(2)} mg/mL`,
+                                    position: 'insideTopLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                                <ReferenceLine
+                                  y={kfLower}
+                                  stroke="#f97316"
+                                  strokeDasharray="4 3"
+                                  label={{
+                                    value: `${kfLower.toFixed(2)} mg/mL`,
+                                    position: 'insideBottomLeft',
+                                    fill: '#f97316',
+                                    fontSize: 10,
+                                  }}
+                                />
+                              </>
                             ) : (
                               <>
                                 <ReferenceLine
@@ -5690,11 +5833,13 @@ applyMeasureSpecs(specList, measures)
                                 />
                               </>
                             )}
-                            <ReferenceLine
-                              y={0}
-                              stroke="#94a3b8"
-                              strokeDasharray="2 3"
-                            />
+                            {!isKarlFischer ? (
+                              <ReferenceLine
+                                y={0}
+                                stroke="#94a3b8"
+                                strokeDasharray="2 3"
+                              />
+                            ) : null}
                             {isMonthlyHistory ? (
                               <>
                                 <Line
@@ -5764,19 +5909,32 @@ applyMeasureSpecs(specList, measures)
                             ) : (
                               <Line
                                 type="monotone"
-                                dataKey={isBalance ? 'diffG' : isTape ? 'diffMm' : 'diffF'}
+                                dataKey={
+                                  isKarlFischer
+                                    ? 'avgFactor'
+                                    : isBalance
+                                      ? 'diffG'
+                                      : isTape
+                                        ? 'diffMm'
+                                        : 'diffF'
+                                }
                                 stroke="#2563eb"
                                 strokeWidth={2}
                                 dot={(props) => {
                                   const { cx, cy, payload } = props
-                                  const value = isBalance
-                                    ? payload?.diffG
-                                    : isTape
-                                      ? payload?.diffMm
-                                      : payload?.diffF
-                                  const outOfControl = isBalance
-                                    ? payload?.emp != null && (value > payload.emp || value < -payload.emp)
-                                    : value > limit || value < -limit
+                                  const value = isKarlFischer
+                                    ? payload?.avgFactor
+                                    : isBalance
+                                      ? payload?.diffG
+                                      : isTape
+                                        ? payload?.diffMm
+                                        : payload?.diffF
+                                  const outOfControl = isKarlFischer
+                                    ? value > kfUpper || value < kfLower
+                                    : isBalance
+                                      ? payload?.emp != null &&
+                                        (value > payload.emp || value < -payload.emp)
+                                      : value > limit || value < -limit
                                   return (
                                     <circle
                                       cx={cx}
@@ -6793,7 +6951,7 @@ applyMeasureSpecs(specList, measures)
                         if ([w1, v1, w2, v2].some((val) => Number.isNaN(val) || !val)) {
                           return (
                             <Typography variant="caption" color="text.secondary">
-                              Factor promedio: - | Error relativo: -
+                              Factor: - | Error relativo: -
                             </Typography>
                           )
                         }
@@ -6807,7 +6965,7 @@ applyMeasureSpecs(specList, measures)
                         return (
                           <>
                             <Typography variant="caption" color="text.secondary">
-                              Factor promedio: {avg.toFixed(4)} mg/mL | Error relativo: {err.toFixed(3)}%
+                              Factor: {avg.toFixed(4)} mg/mL | Error relativo: {err.toFixed(3)}%
                             </Typography>
                             <Typography
                               variant="caption"

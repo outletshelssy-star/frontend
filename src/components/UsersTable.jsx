@@ -1522,10 +1522,9 @@ const UsersTable = ({
               </Avatar>
               <Button
                 variant="outlined"
-              size="small"
-              sx={{ height: 40 }}
+                size="small"
+                sx={{ height: 40, textTransform: 'none' }}
                 disabled
-                sx={{ textTransform: 'none' }}
               >
                 Seleccionar foto
               </Button>

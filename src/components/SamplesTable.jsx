@@ -148,9 +148,19 @@ const SamplesTable = ({
   const canDeleteSample =
     !['visitor'].includes(String(currentUser?.user_type || '').toLowerCase())
 
-  const equipmentTerminalId = isResultsOpen
-    ? String(createForm.terminal_id || '')
-    : String(selectedTerminalId || '')
+  const getLabTerminalId = (terminalId) => {
+    if (!terminalId) return ''
+    const terminal = terminalOptions.find(
+      (item) => String(item?.id) === String(terminalId)
+    )
+    if (!terminal) return String(terminalId)
+    if (terminal.has_lab) return String(terminal.id)
+    return terminal.lab_terminal_id ? String(terminal.lab_terminal_id) : String(terminal.id)
+  }
+
+  const equipmentTerminalId = getLabTerminalId(
+    isResultsOpen ? createForm.terminal_id : selectedTerminalId
+  )
 
   const resultsTerminalId = String(
     createForm.terminal_id || createdSample?.terminal_id || selectedTerminalId || ''
