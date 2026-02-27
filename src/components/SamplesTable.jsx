@@ -318,6 +318,15 @@ const SamplesTable = ({
     return null
   }
 
+  const convertWeightToGrams = (value, unit) => {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) return null
+    const normalized = String(unit || 'g').toLowerCase()
+    if (normalized === 'g') return numeric
+    if (normalized === 'mg') return numeric / 1000
+    return null
+  }
+
   const formatDateInput = (value) => {
     const raw = String(value || '').trim()
     if (!raw) return ''
@@ -335,6 +344,23 @@ const SamplesTable = ({
       temperature: specs.find((spec) => spec.measure === 'temperature') || null,
       relativeHumidity: specs.find((spec) => spec.measure === 'relative_humidity') || null,
     }
+  }
+
+  const getMeasureSpec = (equipment, measure) => {
+    const specs = Array.isArray(equipment?.measure_specs) ? equipment.measure_specs : []
+    return specs.find((spec) => spec.measure === measure) || null
+  }
+
+  const isOutsideSpecRange = (value, spec) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return false
+    if (!spec) return false
+    if (spec.min_value !== null && spec.min_value !== undefined && value < spec.min_value) {
+      return true
+    }
+    if (spec.max_value !== null && spec.max_value !== undefined && value > spec.max_value) {
+      return true
+    }
+    return false
   }
 
   useEffect(() => {
@@ -2165,6 +2191,56 @@ const SamplesTable = ({
                         return
                       }
                     }
+                    const selectedThermometer = thermometerOptions.find(
+                      (item) =>
+                        String(item.id) === String(resultsForm.api.thermometer_id)
+                    )
+                    if (selectedThermometer) {
+                      const tempSpec = getMeasureSpec(selectedThermometer, 'temperature')
+                      const tempStartC = convertTemperatureToC(
+                        resultsForm.api.temp_obs_start,
+                        resultsForm.api.temp_unit
+                      )
+                      const tempEndC = convertTemperatureToC(
+                        resultsForm.api.temp_obs_end,
+                        resultsForm.api.temp_unit
+                      )
+                      if (
+                        isOutsideSpecRange(tempStartC, tempSpec) ||
+                        isOutsideSpecRange(tempEndC, tempSpec)
+                      ) {
+                        setToast({
+                          open: true,
+                          message:
+                            'La temperatura observada esta fuera del rango del termometro.',
+                          severity: 'error',
+                        })
+                        setIsSavingResults(false)
+                        return
+                      }
+                    }
+                    const selectedHydrometer = hydrometerOptions.find(
+                      (item) =>
+                        String(item.id) === String(resultsForm.api.hydrometer_id)
+                    )
+                    if (selectedHydrometer) {
+                      const apiSpec = getMeasureSpec(selectedHydrometer, 'api')
+                      const apiValue = Number(resultsForm.api.lectura_api)
+                      if (
+                        resultsForm.api.lectura_api !== '' &&
+                        !Number.isNaN(apiValue) &&
+                        isOutsideSpecRange(apiValue, apiSpec)
+                      ) {
+                        setToast({
+                          open: true,
+                          message:
+                            'La lectura API esta fuera del rango del hidrometro.',
+                          severity: 'error',
+                        })
+                        setIsSavingResults(false)
+                        return
+                      }
+                    }
                   }
                   const selectedThermo = thermohygrometerOptions.find(
                     (item) => String(item.id) === String(resultsForm.thermohygrometer_id)
@@ -2259,6 +2335,32 @@ const SamplesTable = ({
                     })
                     setIsSavingResults(false)
                     return
+                  }
+                  if (createForm.analyses.includes('water_astm_4377')) {
+                    const selectedBalance = balanceOptions.find(
+                      (item) =>
+                        String(item.id) === String(resultsForm.water.water_balance_id)
+                    )
+                    if (selectedBalance) {
+                      const weightSpec = getMeasureSpec(selectedBalance, 'weight')
+                      const weightValueG = convertWeightToGrams(
+                        resultsForm.water.water_sample_weight,
+                        resultsForm.water.water_sample_weight_unit
+                      )
+                      if (
+                        weightValueG !== null &&
+                        isOutsideSpecRange(weightValueG, weightSpec)
+                      ) {
+                        setToast({
+                          open: true,
+                          message:
+                            'El peso de muestra esta fuera del rango de la balanza.',
+                          severity: 'error',
+                        })
+                        setIsSavingResults(false)
+                        return
+                      }
+                    }
                   }
                   const analyses = createForm.analyses.map((analysisType) => {
                     if (analysisType === 'api_astm_1298') {

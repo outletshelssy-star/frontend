@@ -205,7 +205,14 @@ const DashBoard = () => {
     lastUserIdRef.current = currentUser.id
     const userRole = String(currentUser.user_type || '').toLowerCase()
     if (userRole === 'visitor') {
-      setActiveSection('profile')
+      if (typeof window !== 'undefined') {
+        const savedSection = window.localStorage.getItem('ui.activeSection')
+        if (!savedSection) {
+          setActiveSection('profile')
+        }
+      } else {
+        setActiveSection('profile')
+      }
       return
     }
     if (typeof window !== 'undefined') {
