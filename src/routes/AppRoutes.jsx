@@ -32,9 +32,7 @@ const AppRoutes = () => {
         setIsLoggedIn(true)
       } catch (err) {
         if (!isActive) return
-        setCurrentUserError(
-          err?.detail || 'No se pudo validar la sesion. Inicia sesion de nuevo.'
-        )
+        setCurrentUserError(err?.detail || 'No se pudo validar la sesion. Inicia sesion de nuevo.')
         resetAuth()
       }
     }
@@ -44,23 +42,13 @@ const AppRoutes = () => {
     return () => {
       isActive = false
     }
-  }, [
-    accessToken,
-    tokenType,
-    setCurrentUser,
-    setCurrentUserError,
-    setIsLoggedIn,
-    resetAuth,
-  ])
+  }, [accessToken, tokenType, setCurrentUser, setCurrentUserError, setIsLoggedIn, resetAuth])
 
   return (
     <div className={`app ${isLoggedIn ? 'app--dashboard' : ''}`}>
       <main className="app__main">
         <Routes>
-          <Route
-            path="/"
-            element={isLoggedIn ? <Navigate to="/app" replace /> : <Login />}
-          />
+          <Route path="/" element={isLoggedIn ? <Navigate to="/app" replace /> : <Login />} />
           <Route
             path="/app"
             element={
@@ -69,10 +57,7 @@ const AppRoutes = () => {
               </PrivateRoute>
             }
           />
-          <Route
-            path="*"
-            element={<Navigate to={isLoggedIn ? '/app' : '/'} replace />}
-          />
+          <Route path="*" element={<Navigate to={isLoggedIn ? '/app' : '/'} replace />} />
         </Routes>
       </main>
     </div>

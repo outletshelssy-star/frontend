@@ -19,13 +19,8 @@ const refreshAccessToken = async () => {
     return refreshInFlight
   }
   refreshInFlight = (async () => {
-    const {
-      refreshToken,
-      setAccessToken,
-      setRefreshToken,
-      setTokenType,
-      resetAuth,
-    } = useAuthStore.getState()
+    const { refreshToken, setAccessToken, setRefreshToken, setTokenType, resetAuth } =
+      useAuthStore.getState()
     if (!refreshToken) {
       resetAuth()
       return null
@@ -122,7 +117,7 @@ const fetchEquipmentTypes = async ({ tokenType, accessToken }) => {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -134,7 +129,7 @@ const fetchEquipmentTypeById = async ({ tokenType, accessToken, equipmentTypeId 
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -146,7 +141,7 @@ const fetchEquipments = async ({ tokenType, accessToken }) => {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -158,20 +153,17 @@ const fetchEquipmentById = async ({ tokenType, accessToken, equipmentId }) => {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
 const fetchEquipmentTypeHistory = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment/${equipmentId}/type-history`,
-    {
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}/type-history`, {
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
@@ -182,35 +174,28 @@ const fetchEquipmentTerminalHistory = async ({ tokenType, accessToken, equipment
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
 const fetchEquipmentHistory = async ({ tokenType, accessToken, equipmentId }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment/${equipmentId}/history`,
-    {
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment/${equipmentId}/history`, {
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
-const fetchEquipmentTypeInspectionItems = async ({
-  tokenType,
-  accessToken,
-  equipmentTypeId,
-}) => {
+const fetchEquipmentTypeInspectionItems = async ({ tokenType, accessToken, equipmentTypeId }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-inspection-items/equipment-type/${equipmentTypeId}`,
     {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -232,23 +217,19 @@ const fetchEquipmentTypeVerificationItems = async ({
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const fetchEquipmentTypeVerifications = async ({
-  tokenType,
-  accessToken,
-  equipmentTypeId,
-}) => {
+const fetchEquipmentTypeVerifications = async ({ tokenType, accessToken, equipmentTypeId }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-type-verifications/equipment-type/${equipmentTypeId}`,
     {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -270,7 +251,7 @@ const createEquipmentInspection = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -282,28 +263,20 @@ const fetchEquipmentInspections = async ({ tokenType, accessToken, equipmentId }
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const updateEquipmentInspection = async ({
-  tokenType,
-  accessToken,
-  inspectionId,
-  payload,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment-inspections/${inspectionId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }
-  )
+const updateEquipmentInspection = async ({ tokenType, accessToken, inspectionId, payload }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment-inspections/${inspectionId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   return handleJson(response)
 }
 
@@ -324,7 +297,7 @@ const createEquipmentVerification = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -336,17 +309,12 @@ const fetchEquipmentVerifications = async ({ tokenType, accessToken, equipmentId
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const createEquipmentCalibration = async ({
-  tokenType,
-  accessToken,
-  equipmentId,
-  payload,
-}) => {
+const createEquipmentCalibration = async ({ tokenType, accessToken, equipmentId, payload }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-calibrations/equipment/${equipmentId}`,
     {
@@ -356,7 +324,7 @@ const createEquipmentCalibration = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -368,28 +336,20 @@ const fetchEquipmentCalibrations = async ({ tokenType, accessToken, equipmentId 
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const updateEquipmentCalibration = async ({
-  tokenType,
-  accessToken,
-  calibrationId,
-  payload,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment-calibrations/${calibrationId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }
-  )
+const updateEquipmentCalibration = async ({ tokenType, accessToken, calibrationId, payload }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment-calibrations/${calibrationId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   return handleJson(response)
 }
 
@@ -409,37 +369,24 @@ const uploadEquipmentCalibrationCertificate = async ({
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
       body: formData,
-    }
+    },
   )
   return handleJson(response)
 }
 
-const calculateHydrometerApi60f = async ({
-  tokenType,
-  accessToken,
-  temp_obs_f,
-  lectura_api,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/hydrometer/api60f`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ temp_obs_f, lectura_api }),
-    }
-  )
+const calculateHydrometerApi60f = async ({ tokenType, accessToken, temp_obs_f, lectura_api }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/hydrometer/api60f`, {
+    method: 'POST',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ temp_obs_f, lectura_api }),
+  })
   return handleJson(response)
 }
 
-const updateEquipmentVerification = async ({
-  tokenType,
-  accessToken,
-  verificationId,
-  payload,
-}) => {
+const updateEquipmentVerification = async ({ tokenType, accessToken, verificationId, payload }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/equipment-verifications/${verificationId}`,
     {
@@ -449,7 +396,7 @@ const updateEquipmentVerification = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -469,7 +416,7 @@ const createEquipmentTypeInspectionItem = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -489,7 +436,7 @@ const createEquipmentTypeVerification = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -510,7 +457,7 @@ const updateEquipmentTypeVerification = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -528,7 +475,7 @@ const deleteEquipmentTypeVerification = async ({
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -548,7 +495,7 @@ const createEquipmentTypeInspectionItemsBulk = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -569,7 +516,7 @@ const updateEquipmentTypeInspectionItem = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -587,7 +534,7 @@ const deleteEquipmentTypeInspectionItem = async ({
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -638,64 +585,45 @@ const deleteEquipment = async ({ tokenType, accessToken, equipmentId }) => {
   return handleJson(response)
 }
 
-const updateEquipmentType = async ({
-  tokenType,
-  accessToken,
-  equipmentTypeId,
-  payload,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }
-  )
+const updateEquipmentType = async ({ tokenType, accessToken, equipmentTypeId, payload }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   return handleJson(response)
 }
 
 const deleteEquipmentType = async ({ tokenType, accessToken, equipmentTypeId }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/equipment-types/${equipmentTypeId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
 const fetchCompanyBlocks = async ({ tokenType, accessToken }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/company-blocks/?include=company`,
-    {
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-blocks/?include=company`, {
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
-const fetchCompanyBlockById = async ({
-  tokenType,
-  accessToken,
-  blockId,
-  companyId,
-}) => {
+const fetchCompanyBlockById = async ({ tokenType, accessToken, blockId, companyId }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-blocks/${blockId}?include=company&company_id=${companyId}`,
     {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -741,24 +669,19 @@ const fetchCompanyTerminals = async ({ tokenType, accessToken }) => {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const fetchCompanyTerminalById = async ({
-  tokenType,
-  accessToken,
-  terminalId,
-  ownerCompanyId,
-}) => {
+const fetchCompanyTerminalById = async ({ tokenType, accessToken, terminalId, ownerCompanyId }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/company-terminals/${terminalId}?include=block,owner_company,admin_company&owner_company_id=${ownerCompanyId}`,
     {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -775,36 +698,25 @@ const createCompanyTerminal = async ({ tokenType, accessToken, payload }) => {
   return handleJson(response)
 }
 
-const updateCompanyTerminal = async ({
-  tokenType,
-  accessToken,
-  terminalId,
-  payload,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/company-terminals/${terminalId}`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }
-  )
+const updateCompanyTerminal = async ({ tokenType, accessToken, terminalId, payload }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-terminals/${terminalId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   return handleJson(response)
 }
 
 const deleteCompanyTerminal = async ({ tokenType, accessToken, terminalId }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/company-terminals/${terminalId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/company-terminals/${terminalId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
@@ -824,17 +736,12 @@ const fetchExternalAnalysesByTerminal = async ({ tokenType, accessToken, termina
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const upsertExternalAnalysisTerminal = async ({
-  tokenType,
-  accessToken,
-  terminalId,
-  payload,
-}) => {
+const upsertExternalAnalysisTerminal = async ({ tokenType, accessToken, terminalId, payload }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/external-analyses/terminal/${terminalId}`,
     {
@@ -844,17 +751,12 @@ const upsertExternalAnalysisTerminal = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
 
-const createExternalAnalysisRecord = async ({
-  tokenType,
-  accessToken,
-  terminalId,
-  payload,
-}) => {
+const createExternalAnalysisRecord = async ({ tokenType, accessToken, terminalId, payload }) => {
   const response = await authFetch(
     `${apiBaseUrl}/api/v1/external-analyses/records/terminal/${terminalId}`,
     {
@@ -864,7 +766,7 @@ const createExternalAnalysisRecord = async ({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    }
+    },
   )
   return handleJson(response)
 }
@@ -882,17 +784,12 @@ const fetchExternalAnalysisRecords = async ({
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
 
-const uploadExternalAnalysisReport = async ({
-  tokenType,
-  accessToken,
-  recordId,
-  file,
-}) => {
+const uploadExternalAnalysisReport = async ({ tokenType, accessToken, recordId, file }) => {
   const formData = new FormData()
   formData.append('file', file)
   const response = await authFetch(
@@ -903,45 +800,30 @@ const uploadExternalAnalysisReport = async ({
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
       body: formData,
-    }
+    },
   )
   return handleJson(response)
 }
 
-const updateExternalAnalysisRecord = async ({
-  tokenType,
-  accessToken,
-  recordId,
-  payload,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }
-  )
+const updateExternalAnalysisRecord = async ({ tokenType, accessToken, recordId, payload }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   return handleJson(response)
 }
 
-const deleteExternalAnalysisRecord = async ({
-  tokenType,
-  accessToken,
-  recordId,
-}) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+const deleteExternalAnalysisRecord = async ({ tokenType, accessToken, recordId }) => {
+  const response = await authFetch(`${apiBaseUrl}/api/v1/external-analyses/records/${recordId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 
@@ -1002,7 +884,7 @@ const fetchUserById = async ({ tokenType, accessToken, userId }) => {
       headers: {
         Authorization: `${tokenType || 'bearer'} ${accessToken}`,
       },
-    }
+    },
   )
   return handleJson(response)
 }
@@ -1097,14 +979,11 @@ const fetchCompanyById = async ({ tokenType, accessToken, companyId }) => {
 }
 
 const fetchSamplesByTerminal = async ({ tokenType, accessToken, terminalId }) => {
-  const response = await authFetch(
-    `${apiBaseUrl}/api/v1/samples/terminal/${terminalId}`,
-    {
-      headers: {
-        Authorization: `${tokenType || 'bearer'} ${accessToken}`,
-      },
-    }
-  )
+  const response = await authFetch(`${apiBaseUrl}/api/v1/samples/terminal/${terminalId}`, {
+    headers: {
+      Authorization: `${tokenType || 'bearer'} ${accessToken}`,
+    },
+  })
   return handleJson(response)
 }
 

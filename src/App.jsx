@@ -1,22 +1,8 @@
 import { BrowserRouter } from 'react-router-dom'
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
+import { CssBaseline, ThemeProvider } from '@mui/material'
 import './App.css'
 import AppRoutes from './routes/AppRoutes'
-
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#4f46e5',
-    },
-    secondary: {
-      main: '#4338ca',
-    },
-  },
-  shape: {
-    borderRadius: 12,
-  },
-})
+import theme from './theme'
 
 function App() {
   return (

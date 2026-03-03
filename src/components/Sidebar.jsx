@@ -5,9 +5,12 @@ import {
   Divider,
   IconButton,
   Stack,
+  Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
 import {
+  AssessmentOutlined,
   BarChartOutlined,
   BusinessOutlined,
   DevicesOutlined,
@@ -17,9 +20,36 @@ import {
   PersonOutline,
   PrecisionManufacturingOutlined,
   ScienceOutlined,
-  ViewModuleOutlined,
   FactCheckOutlined,
 } from '@mui/icons-material'
+
+const NavBtn = ({ section, label, icon, activeSection, isCollapsed, onSectionChange }) => {
+  const isActive = activeSection === section
+  const button = (
+    <Button
+      type="button"
+      className={`sidebar__item ${isActive ? 'is-active' : ''}`}
+      onClick={() => onSectionChange(section)}
+    >
+      <span className="sidebar__icon">{icon}</span>
+      {!isCollapsed ? <span>{label}</span> : null}
+    </Button>
+  )
+  return isCollapsed ? (
+    <Tooltip title={label} placement="right" arrow>
+      <span style={{ display: 'block' }}>{button}</span>
+    </Tooltip>
+  ) : (
+    button
+  )
+}
+
+const SectionLabel = ({ children, isCollapsed }) =>
+  isCollapsed ? (
+    <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)', my: 0.5 }} />
+  ) : (
+    <Typography className="sidebar__section-label">{children}</Typography>
+  )
 
 const Sidebar = ({
   currentUser,
@@ -29,26 +59,33 @@ const Sidebar = ({
   onToggle,
   onSectionChange,
   onLogout,
+  brandName = 'Laboratorio 2026',
 }) => {
+  const isCompactSidebar = useMediaQuery('(max-width:980px)')
+  const isIconsOnly = isCollapsed || isCompactSidebar
   const role = String(currentUser?.user_type || '').toLowerCase()
-  const canSeeUsers = ['admin', 'superadmin'].includes(role)
+  const canSeeAdmin = ['admin', 'superadmin'].includes(role)
   const isVisitor = role === 'visitor'
 
   return (
-    <Box component="aside" className={`sidebar ${isCollapsed ? 'is-collapsed' : ''}`}>
+    <Box component="aside" className={`sidebar ${isIconsOnly ? 'is-collapsed' : ''}`}>
       <Box className="sidebar__top">
-        <IconButton
-          className="sidebar__toggle"
-          onClick={onToggle}
-          aria-label={isCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
-        >
-          <Box className="sidebar__toggle-bars">
-            <span />
-            <span />
-            <span />
-          </Box>
-        </IconButton>
-        {!isCollapsed ? (
+        {!isCompactSidebar ? (
+          <Tooltip title={isCollapsed ? 'Expandir' : 'Contraer'} placement="right" arrow>
+            <IconButton
+              className="sidebar__toggle"
+              onClick={onToggle}
+              aria-label={isCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
+            >
+              <Box className="sidebar__toggle-bars">
+                <span />
+                <span className="sidebar__toggle-bar--mid" />
+                <span />
+              </Box>
+            </IconButton>
+          </Tooltip>
+        ) : null}
+        {!isIconsOnly ? (
           <Box className="sidebar__brand">
             <img
               className="brand__logo"
@@ -58,166 +95,135 @@ const Sidebar = ({
           </Box>
         ) : null}
       </Box>
-      {!isCollapsed ? (
-        <Box className="sidebar__brand-name">Laboratorio 2026</Box>
-      ) : null}
 
-      <Divider
-        sx={{
-          borderColor: 'rgba(148, 163, 184, 0.2)',
-          mb: 1.5,
-          width: '100%',
-        }}
-      />
+      {!isIconsOnly ? <Box className="sidebar__brand-name">{brandName}</Box> : null}
 
-      <Stack className="sidebar__nav" spacing={1}>
+      <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)', mb: 0.5, width: '100%' }} />
+
+      <Stack className="sidebar__nav" spacing={0.5}>
         {!isVisitor ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
-            onClick={() => onSectionChange('dashboard')}
-          >
-            <span className="sidebar__icon">
-              <BarChartOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Dashboard</span> : null}
-          </Button>
+          <NavBtn
+            section="dashboard"
+            label="Dashboard"
+            icon={<BarChartOutlined fontSize="small" />}
+            activeSection={activeSection}
+            isCollapsed={isIconsOnly}
+            onSectionChange={onSectionChange}
+          />
         ) : null}
-        <Button
-          type="button"
-          className={`sidebar__item ${activeSection === 'profile' ? 'is-active' : ''}`}
-          onClick={() => onSectionChange('profile')}
-        >
-          <span className="sidebar__icon">
-            <PersonOutline fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Mi perfil</span> : null}
-        </Button>
-        {canSeeUsers ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${activeSection === 'users' ? 'is-active' : ''}`}
-            onClick={() => onSectionChange('users')}
-          >
-            <span className="sidebar__icon">
-              <GroupOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Usuarios</span> : null}
-          </Button>
+        <NavBtn
+          section="profile"
+          label="Mi perfil"
+          icon={<PersonOutline fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
+
+        {canSeeAdmin ? (
+          <>
+            <SectionLabel isCollapsed={isIconsOnly}>Administracion</SectionLabel>
+            <NavBtn
+              section="users"
+              label="Usuarios"
+              icon={<GroupOutlined fontSize="small" />}
+              activeSection={activeSection}
+              isCollapsed={isIconsOnly}
+              onSectionChange={onSectionChange}
+            />
+            <NavBtn
+              section="companies"
+              label="Empresas"
+              icon={<BusinessOutlined fontSize="small" />}
+              activeSection={activeSection}
+              isCollapsed={isIconsOnly}
+              onSectionChange={onSectionChange}
+            />
+            <NavBtn
+              section="terminals"
+              label="Terminales"
+              icon={<DevicesOutlined fontSize="small" />}
+              activeSection={activeSection}
+              isCollapsed={isIconsOnly}
+              onSectionChange={onSectionChange}
+            />
+          </>
         ) : null}
-        {canSeeUsers ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${activeSection === 'prueba' ? 'is-active' : ''}`}
-            onClick={() => onSectionChange('prueba')}
-          >
-            <span className="sidebar__icon">
-              <BusinessOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Empresas</span> : null}
-          </Button>
-        ) : null}
-        {canSeeUsers ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${
-              activeSection === 'terminals' ? 'is-active' : ''
-            }`}
-            onClick={() => onSectionChange('terminals')}
-          >
-            <span className="sidebar__icon">
-              <DevicesOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Terminales</span> : null}
-          </Button>
-        ) : null}
-        {canSeeUsers ? (
-          <Button
-            type="button"
-            className={`sidebar__item ${
-              activeSection === 'equipment-types' ? 'is-active' : ''
-            }`}
-            onClick={() => onSectionChange('equipment-types')}
-          >
-            <span className="sidebar__icon">
-              <PrecisionManufacturingOutlined fontSize="small" />
-            </span>
-            {!isCollapsed ? <span>Tipos de equipo</span> : null}
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          className={`sidebar__item ${activeSection === 'equipment' ? 'is-active' : ''}`}
-          onClick={() => onSectionChange('equipment')}
-        >
-          <span className="sidebar__icon">
-            <HandymanOutlined fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Equipos</span> : null}
-        </Button>
-        <Button
-          type="button"
-          className={`sidebar__item ${activeSection === 'samples' ? 'is-active' : ''}`}
-          onClick={() => onSectionChange('samples')}
-        >
-          <span className="sidebar__icon">
-            <ScienceOutlined fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Muestras</span> : null}
-        </Button>
-        <Button
-          type="button"
-          className={`sidebar__item ${
-            activeSection === 'external-analyses' ? 'is-active' : ''
-          }`}
-          onClick={() => onSectionChange('external-analyses')}
-        >
-          <span className="sidebar__icon">
-            <FactCheckOutlined fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Analisis externos</span> : null}
-        </Button>
-        <Button
-          type="button"
-          className={`sidebar__item ${activeSection === 'reports' ? 'is-active' : ''}`}
-          onClick={() => onSectionChange('reports')}
-        >
-          <span className="sidebar__icon">
-            <BarChartOutlined fontSize="small" />
-          </span>
-          {!isCollapsed ? <span>Reportes</span> : null}
-        </Button>
+
+        <SectionLabel isCollapsed={isIconsOnly}>Laboratorio</SectionLabel>
+        <NavBtn
+          section="equipment-types"
+          label="Plan Metrologico"
+          icon={<PrecisionManufacturingOutlined fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
+        <NavBtn
+          section="equipment"
+          label="Equipos"
+          icon={<HandymanOutlined fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
+        <NavBtn
+          section="samples"
+          label="Muestras"
+          icon={<ScienceOutlined fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
+        <NavBtn
+          section="external-analyses"
+          label="Analisis externos"
+          icon={<FactCheckOutlined fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
+        <NavBtn
+          section="reports"
+          label="Reportes"
+          icon={<AssessmentOutlined fontSize="small" />}
+          activeSection={activeSection}
+          isCollapsed={isIconsOnly}
+          onSectionChange={onSectionChange}
+        />
       </Stack>
 
       <Box className="sidebar__footer">
-        <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.2)', mb: 1.5 }} />
+        <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)', mb: 1.5 }} />
         <Box className="sidebar__user">
-          <Avatar
-            className="sidebar__avatar"
-            src={currentUser?.photo_url || ''}
-            alt={
-              currentUser
-                ? `${currentUser.name || ''} ${currentUser.last_name || ''}`.trim()
-                : 'Usuario'
-            }
+          <Tooltip
+            title={currentUser ? `${currentUser.name} ${currentUser.last_name}` : 'Usuario'}
+            placement="right"
+            arrow
+            disableHoverListener={!isIconsOnly}
           >
-            {currentUser?.name?.charAt(0) || 'U'}
-          </Avatar>
-          {!isCollapsed ? (
-            <Box>
-              <Typography
-                className="sidebar__user-name"
-                variant="body2"
-                sx={{ fontSize: '0.98rem' }}
-              >
-                {currentUser
-                  ? `${currentUser.name} ${currentUser.last_name}`
-                  : 'Cargando usuario...'}
+            <Avatar
+              className="sidebar__avatar"
+              src={currentUser?.photo_url ?? undefined}
+              alt={
+                currentUser
+                  ? `${currentUser.name || ''} ${currentUser.last_name || ''}`.trim()
+                  : 'Usuario'
+              }
+            >
+              {currentUser?.name?.charAt(0) || 'U'}
+            </Avatar>
+          </Tooltip>
+          {!isIconsOnly ? (
+            <Box sx={{ overflow: 'hidden' }}>
+              <Typography className="sidebar__user-name" variant="body2" noWrap>
+                {currentUser ? `${currentUser.name} ${currentUser.last_name}` : 'Cargando...'}
               </Typography>
               <Typography
                 className="sidebar__user-meta"
                 variant="caption"
-                sx={{ fontSize: '0.86rem' }}
+                noWrap
+                sx={{ display: 'block' }}
               >
                 {currentUserError
                   ? currentUserError
@@ -226,25 +232,18 @@ const Sidebar = ({
             </Box>
           ) : null}
         </Box>
-        <Button
-          type="button"
-          className="link-button sidebar__logout"
-          onClick={onLogout}
-          size="small"
-          sx={{
-            fontSize: '0.68rem',
-            padding: isCollapsed ? '0.35rem' : '0.3rem 0.6rem',
-            minHeight: '32px',
-            minWidth: isCollapsed ? '36px' : 'auto',
-            justifyContent: isCollapsed ? 'center' : 'flex-start',
-            '& .MuiButton-startIcon': {
-              margin: 0,
-            },
-          }}
-          startIcon={<LogoutOutlined fontSize="small" />}
-        >
-          {!isCollapsed ? 'Cerrar sesion' : null}
-        </Button>
+
+        <Tooltip title="Cerrar sesion" placement="right" arrow disableHoverListener={!isIconsOnly}>
+          <Button
+            type="button"
+            className="link-button sidebar__logout"
+            onClick={onLogout}
+            size="small"
+            startIcon={<LogoutOutlined fontSize="small" />}
+          >
+            {!isIconsOnly ? 'Cerrar sesion' : null}
+          </Button>
+        </Tooltip>
       </Box>
     </Box>
   )

@@ -10,11 +10,7 @@ const DashboardSummary = ({
     ? equipments.filter((item) => item?.is_active && item?.status === 'in_use')
     : []
   const today = new Date()
-  const startOfToday = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  ).getTime()
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
   const soonThresholdDays = 30
 
   const parseDate = (value) => {
@@ -24,9 +20,7 @@ const DashboardSummary = ({
   }
 
   const getLastCalibrationDate = (equipment) => {
-    const calibrations = Array.isArray(equipment?.calibrations)
-      ? equipment.calibrations
-      : []
+    const calibrations = Array.isArray(equipment?.calibrations) ? equipment.calibrations : []
     if (calibrations.length === 0) return null
     return calibrations
       .map((cal) => parseDate(cal?.calibrated_at))
@@ -34,8 +28,7 @@ const DashboardSummary = ({
       .sort((a, b) => b.getTime() - a.getTime())[0]
   }
 
-  const formatDate = (date) =>
-    date ? date.toLocaleDateString() : '-'
+  const formatDate = (date) => (date ? date.toLocaleDateString() : '-')
 
   const buildCalibrationStatus = (equipment) => {
     const calibrationDays = Number(equipment?.equipment_type?.calibration_days || 0)
@@ -64,15 +57,9 @@ const DashboardSummary = ({
     }))
     .filter((row) => row.status !== null)
 
-  const missingCalibration = calibrationSummary.filter(
-    (row) => row.status.status === 'missing'
-  )
-  const overdueCalibration = calibrationSummary.filter(
-    (row) => row.status.status === 'overdue'
-  )
-  const dueSoonCalibration = calibrationSummary.filter(
-    (row) => row.status.status === 'due_soon'
-  )
+  const missingCalibration = calibrationSummary.filter((row) => row.status.status === 'missing')
+  const overdueCalibration = calibrationSummary.filter((row) => row.status.status === 'overdue')
+  const dueSoonCalibration = calibrationSummary.filter((row) => row.status.status === 'due_soon')
 
   const renderEquipmentItem = (row) => {
     const equipment = row.equipment
@@ -81,18 +68,14 @@ const DashboardSummary = ({
     const typeName = equipment?.equipment_type?.name || '-'
     const terminalName = equipment?.terminal?.name || '-'
     const dueLabel =
-      status.status === 'missing'
-        ? 'Sin calibracion'
-        : `Vence: ${formatDate(status.dueDate)}`
+      status.status === 'missing' ? 'Sin calibracion' : `Vence: ${formatDate(status.dueDate)}`
     return `${serial} · ${typeName} · ${terminalName} · ${dueLabel}`
   }
 
   return (
     <section className="card dashboard-card">
       <h1>Dashboard</h1>
-      <p className="subtitle">
-        Hola, {username.trim() || 'usuario'}. Ya iniciaste sesion.
-      </p>
+      <p className="subtitle">Hola, {username.trim() || 'usuario'}. Ya iniciaste sesion.</p>
       <div className="dashboard">
         <article>
           <h2>Usuarios</h2>
@@ -116,9 +99,7 @@ const DashboardSummary = ({
                   <strong>Sin calibracion</strong>
                   <ul>
                     {missingCalibration.map((row) => (
-                      <li key={`missing-${row.equipment?.id}`}>
-                        {renderEquipmentItem(row)}
-                      </li>
+                      <li key={`missing-${row.equipment?.id}`}>{renderEquipmentItem(row)}</li>
                     ))}
                   </ul>
                 </div>
@@ -128,9 +109,7 @@ const DashboardSummary = ({
                   <strong>Calibracion vencida</strong>
                   <ul>
                     {overdueCalibration.map((row) => (
-                      <li key={`overdue-${row.equipment?.id}`}>
-                        {renderEquipmentItem(row)}
-                      </li>
+                      <li key={`overdue-${row.equipment?.id}`}>{renderEquipmentItem(row)}</li>
                     ))}
                   </ul>
                 </div>
@@ -140,9 +119,7 @@ const DashboardSummary = ({
                   <strong>Proximas a vencer</strong>
                   <ul>
                     {dueSoonCalibration.map((row) => (
-                      <li key={`due-${row.equipment?.id}`}>
-                        {renderEquipmentItem(row)}
-                      </li>
+                      <li key={`due-${row.equipment?.id}`}>{renderEquipmentItem(row)}</li>
                     ))}
                   </ul>
                 </div>

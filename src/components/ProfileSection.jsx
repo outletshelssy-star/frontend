@@ -8,12 +8,15 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   Snackbar,
   Alert,
   Stack,
   TextField,
   Typography,
   CircularProgress,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import { updateMe, updateMyPassword, uploadMyPhoto } from '../services/api'
 
@@ -45,7 +48,8 @@ const ProfileSection = ({
     message: '',
     severity: 'success',
   })
-  const isVisitor = String(currentUser?.user_type || '').toLowerCase() === 'visitor'
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
   const terminalChipPalette = [
     { bg: '#e0f2fe', fg: '#075985' },
@@ -64,9 +68,7 @@ const ProfileSection = ({
     for (let i = 0; i < normalized.length; i += 1) {
       hash = (hash * 31 + normalized.charCodeAt(i)) % 2147483647
     }
-    const index = terminalChipPalette.length
-      ? Math.abs(hash) % terminalChipPalette.length
-      : 0
+    const index = terminalChipPalette.length ? Math.abs(hash) % terminalChipPalette.length : 0
     const colors = terminalChipPalette[index] || terminalChipPalette[0]
     return {
       backgroundColor: colors.bg,
@@ -125,7 +127,7 @@ const ProfileSection = ({
         })
       }
       if (onProfileUpdated) {
-        onProfileUpdated(finalUser)
+        await onProfileUpdated(finalUser)
       }
       setToast({
         open: true,
@@ -149,6 +151,11 @@ const ProfileSection = ({
   }
 
   const handleOpenEdit = () => {
+    setFormData({
+      name: currentUser?.name || '',
+      last_name: currentUser?.last_name || '',
+    })
+    setPhotoFile(null)
     setPhotoPreview(currentUser?.photo_url || '')
     setIsEditOpen(true)
   }
@@ -245,7 +252,11 @@ const ProfileSection = ({
             src={currentUser.photo_url || ''}
             alt={`${currentUser.name} ${currentUser.last_name}`}
             variant="rounded"
-            sx={{ width: 140, height: 140, borderRadius: 4 }}
+            sx={{
+              width: { xs: 92, sm: 120, md: 140 },
+              height: { xs: 92, sm: 120, md: 140 },
+              borderRadius: 4,
+            }}
           >
             {currentUser.name?.charAt(0) || 'U'}
           </Avatar>
@@ -270,14 +281,14 @@ const ProfileSection = ({
                     currentUser.user_type === 'superadmin'
                       ? '#5b21b6'
                       : currentUser.user_type === 'admin'
-                      ? '#1d4ed8'
-                      : '#0f766e',
+                        ? '#1d4ed8'
+                        : '#0f766e',
                   backgroundColor:
                     currentUser.user_type === 'superadmin'
                       ? '#ede9fe'
                       : currentUser.user_type === 'admin'
-                      ? '#dbeafe'
-                      : '#ccfbf1',
+                        ? '#dbeafe'
+                        : '#ccfbf1',
                 }}
               >
                 {formatUserType(currentUser.user_type)}
@@ -340,133 +351,168 @@ const ProfileSection = ({
         </div>
       ) : null}
       {currentUser ? (
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button variant="contained" onClick={handleOpenEdit}>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.25,
+            gridTemplateColumns: { xs: '1fr', sm: 'auto auto' },
+            justifyContent: 'flex-start',
+          }}
+        >
+          <Button variant="contained" onClick={handleOpenEdit} fullWidth={isMobile}>
             Editar datos
           </Button>
-          <Button variant="outlined" onClick={handleOpenPassword}>
+          <Button variant="outlined" onClick={handleOpenPassword} fullWidth={isMobile}>
             Cambiar contrasena
           </Button>
         </Box>
       ) : null}
-      <Dialog open={isEditOpen} onClose={handleCloseEdit} fullWidth maxWidth="sm">
+      <Dialog
+        open={isEditOpen}
+        onClose={handleCloseEdit}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isMobile}
+      >
         <DialogTitle>Editar perfil</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
-          <Button
-            variant="outlined"
-            component="label"
-            sx={{ justifyContent: 'space-between' }}
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="overline" color="text.secondary">
+            Foto de perfil
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              gap: 2,
+              mb: 3,
+            }}
           >
-            {photoFile ? `Foto seleccionada: ${photoFile.name}` : 'Actualizar foto'}
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0] || null
-                setPhotoFile(file)
-              }}
-            />
-          </Button>
-          {photoFile || photoPreview ? (
-            <Button
-              type="button"
-              variant="text"
-              size="small"
-              onClick={() => {
-                setPhotoFile(null)
-                setPhotoPreview(currentUser?.photo_url || '')
-              }}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Quitar foto
-            </Button>
-          ) : null}
-          {photoPreview ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar src={photoPreview} sx={{ width: 56, height: 56 }}>
-                {formData.name?.charAt(0) || 'U'}
-              </Avatar>
-              <Typography variant="body2" color="text.secondary">
-                {photoFile ? 'Vista previa' : 'Foto actual'}
-              </Typography>
+            <Avatar src={photoPreview} sx={{ width: 72, height: 72, borderRadius: 2 }}>
+              {formData.name?.charAt(0) || 'U'}
+            </Avatar>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Button variant="outlined" component="label" size="small">
+                {photoFile ? photoFile.name : 'Subir foto'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null
+                    setPhotoFile(file)
+                  }}
+                />
+              </Button>
+              {photoFile ? (
+                <Button
+                  type="button"
+                  variant="text"
+                  size="small"
+                  color="error"
+                  onClick={() => {
+                    setPhotoFile(null)
+                    setPhotoPreview(currentUser?.photo_url || '')
+                  }}
+                >
+                  Quitar foto
+                </Button>
+              ) : null}
             </Box>
-          ) : null}
-          <TextField
-            label="Nombre"
-            value={formData.name}
-            onChange={(event) =>
-              setFormData((prev) => ({ ...prev, name: event.target.value }))
-            }
-            required
-          />
-          <TextField
-            label="Apellido"
-            value={formData.last_name}
-            onChange={(event) =>
-              setFormData((prev) => ({ ...prev, last_name: event.target.value }))
-            }
-            required
-          />
+          </Box>
+          <Typography variant="overline" color="text.secondary">
+            Datos personales
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+            <TextField
+              label="Nombre"
+              size="small"
+              value={formData.name}
+              onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
+              required
+            />
+            <TextField
+              label="Apellido"
+              size="small"
+              value={formData.last_name}
+              onChange={(event) =>
+                setFormData((prev) => ({ ...prev, last_name: event.target.value }))
+              }
+              required
+            />
+          </Box>
         </DialogContent>
-        <DialogActions>
+      <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
           <Button onClick={handleCloseEdit}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Guardando...' : 'Guardar cambios'}
+          <Button variant="contained" onClick={handleSave}>
+            Guardar cambios
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={isPasswordOpen} onClose={handleClosePassword} fullWidth maxWidth="sm">
+      <Dialog
+        open={isPasswordOpen}
+        onClose={handleClosePassword}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isMobile}
+      >
         <DialogTitle>Cambiar contrasena</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
-          <TextField
-            label="Contrasena actual"
-            type="password"
-            value={passwordData.current_password}
-            onChange={(event) =>
-              setPasswordData((prev) => ({
-                ...prev,
-                current_password: event.target.value,
-              }))
-            }
-            autoComplete="current-password"
-            required
-          />
-          <TextField
-            label="Nueva contrasena"
-            type="password"
-            value={passwordData.new_password}
-            onChange={(event) =>
-              setPasswordData((prev) => ({
-                ...prev,
-                new_password: event.target.value,
-              }))
-            }
-            autoComplete="new-password"
-            required
-          />
-          <TextField
-            label="Confirmar contrasena"
-            type="password"
-            value={passwordData.confirm_password}
-            onChange={(event) =>
-              setPasswordData((prev) => ({
-                ...prev,
-                confirm_password: event.target.value,
-              }))
-            }
-            autoComplete="new-password"
-            required
-          />
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="overline" color="text.secondary">
+            Seguridad
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <TextField
+              label="Contrasena actual"
+              type="password"
+              size="small"
+              value={passwordData.current_password}
+              onChange={(event) =>
+                setPasswordData((prev) => ({
+                  ...prev,
+                  current_password: event.target.value,
+                }))
+              }
+              autoComplete="current-password"
+              required
+            />
+            <TextField
+              label="Nueva contrasena"
+              type="password"
+              size="small"
+              value={passwordData.new_password}
+              onChange={(event) =>
+                setPasswordData((prev) => ({
+                  ...prev,
+                  new_password: event.target.value,
+                }))
+              }
+              autoComplete="new-password"
+              required
+            />
+            <TextField
+              label="Confirmar contrasena"
+              type="password"
+              size="small"
+              value={passwordData.confirm_password}
+              onChange={(event) =>
+                setPasswordData((prev) => ({
+                  ...prev,
+                  confirm_password: event.target.value,
+                }))
+              }
+              autoComplete="new-password"
+              required
+            />
+          </Box>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
           <Button onClick={handleClosePassword}>Cancelar</Button>
-          <Button
-            variant="contained"
-            onClick={handleUpdatePassword}
-            disabled={isSaving}
-          >
-            {isSaving ? 'Guardando...' : 'Actualizar'}
+          <Button variant="contained" onClick={handleUpdatePassword} disabled={isSaving}>
+            {isSaving ? 'Actualizando...' : 'Actualizar'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -488,7 +534,7 @@ const ProfileSection = ({
         open={toast.open}
         autoHideDuration={3500}
         onClose={() => setToast((prev) => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: isMobile ? 'center' : 'right' }}
       >
         <Alert
           onClose={() => setToast((prev) => ({ ...prev, open: false }))}

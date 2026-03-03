@@ -1,32 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getStoredFilterValue } from '../utils/storage'
 import { Box, Typography } from '@mui/material'
 import { useAuthStore } from '../store/useAuthStore'
 import { useUsersStore } from '../store/useUsersStore'
 import { useUiStore } from '../store/useUiStore'
-import {
-  fetchCompanies,
-  fetchCompanyBlocks,
-  fetchCompanyTerminals,
-  fetchCurrentUser,
-  fetchEquipments,
-  fetchEquipmentTypes,
-  fetchUsers,
-  logout,
-} from '../services/api'
+import { useCompanyBlocksQuery } from '../hooks/useCompanyBlocksQuery'
+import { useCompanyTerminalsQuery } from '../hooks/useCompanyTerminalsQuery'
+import { useEquipmentTypesQuery } from '../hooks/useEquipmentTypesQuery'
+import { useEquipmentsQuery } from '../hooks/useEquipmentsQuery'
+import { useCompaniesQuery } from '../hooks/useCompaniesQuery'
+import { fetchCurrentUser, fetchEquipments, fetchUsers, logout } from '../services/api'
 import { formatUserType } from '../utils/formatters'
 import Sidebar from '../components/Sidebar'
-import UsersTable from '../components/UsersTable'
+import UsersTable from '../components/users/UsersTable'
 import ProfileSection from '../components/ProfileSection'
 import DashboardLayout from '../layouts/DashboardLayout'
 import DashboardSummary from '../components/DashboardSummary'
-import CompaniesTable from '../components/CompaniesTable'
-import CompanyBlocksTable from '../components/CompanyBlocksTable'
-import CompanyTerminalsTable from '../components/CompanyTerminalsTable'
-import EquipmentTypesTable from '../components/EquipmentTypesTable'
-import EquipmentsTable from '../components/EquipmentsTable'
-import SamplesTable from '../components/SamplesTable'
-import ExternalAnalysesTable from '../components/ExternalAnalysesTable'
-import PruebaPage from '../components/PruebaPage'
+import CompaniesTable from '../components/companies/CompaniesTable'
+import CompanyBlocksTable from '../components/blocks/CompanyBlocksTable'
+import CompanyTerminalsTable from '../components/terminals/CompanyTerminalsTable'
+import EquipmentTypesTable from '../components/equipmentTypes/EquipmentTypesTable'
+import EquipmentsTable from '../components/equipments/EquipmentsTable'
+import SamplesTable from '../components/samples/SamplesTable'
+import ExternalAnalysesTable from '../components/externalAnalyses/ExternalAnalysesTable'
+import CompaniesSection from '../components/CompaniesSection'
 
 const DashBoard = () => {
   const {
@@ -48,46 +45,36 @@ const DashBoard = () => {
     setIsUsersLoading,
     resetUsers,
   } = useUsersStore()
-  const {
-    activeSection,
-    isSidebarCollapsed,
-    setActiveSection,
-    setIsSidebarCollapsed,
-    resetUi,
-  } = useUiStore()
+  const { activeSection, isSidebarCollapsed, setActiveSection, setIsSidebarCollapsed, resetUi } =
+    useUiStore()
   const role = String(currentUser?.user_type || '').toLowerCase()
   const canSeeUsers = role === 'admin' || role === 'superadmin'
-  const [companies, setCompanies] = useState([])
-  const [companiesError, setCompaniesError] = useState('')
-  const [isCompaniesLoading, setIsCompaniesLoading] = useState(false)
-  const [blocks, setBlocks] = useState([])
-  const [blocksError, setBlocksError] = useState('')
-  const [isBlocksLoading, setIsBlocksLoading] = useState(false)
-  const [terminals, setTerminals] = useState([])
-  const [terminalsError, setTerminalsError] = useState('')
-  const [isTerminalsLoading, setIsTerminalsLoading] = useState(false)
-  const [equipmentTypes, setEquipmentTypes] = useState([])
-  const [equipmentTypesError, setEquipmentTypesError] = useState('')
-  const [isEquipmentTypesLoading, setIsEquipmentTypesLoading] = useState(false)
-  const [equipments, setEquipments] = useState([])
-  const [equipmentsError, setEquipmentsError] = useState('')
-  const [isEquipmentsLoading, setIsEquipmentsLoading] = useState(false)
-  const getStoredFilterValue = (key, fallback) => {
-    if (typeof window === 'undefined') return fallback
-    const raw = window.localStorage.getItem(key)
-    if (raw === null) return fallback
-    try {
-      return JSON.parse(raw)
-    } catch (err) {
-      return raw
-    }
-  }
-
   const [statusFilter, setStatusFilter] = useState(() =>
-    getStoredFilterValue('users.filters.status', 'all')
+    getStoredFilterValue('users.filters.status', 'all'),
   )
   const lastUserIdRef = useRef(null)
-
+  const { data: companies = [] } = useCompaniesQuery()
+  const { data: blocks = [] } = useCompanyBlocksQuery()
+  const terminalsEnabled = [
+    'terminals',
+    'equipment',
+    'samples',
+    'external-analyses',
+    'companies',
+  ].includes(activeSection)
+  const {
+    data: terminals = [],
+    isLoading: isTerminalsLoading,
+    error: terminalsError,
+  } = useCompanyTerminalsQuery({ enabled: terminalsEnabled })
+  const equipmentTypesEnabled = ['equipment-types', 'equipment'].includes(activeSection)
+  const { data: equipmentTypes = [] } = useEquipmentTypesQuery({ enabled: equipmentTypesEnabled })
+  const equipmentsEnabled = ['dashboard', 'equipment', 'samples'].includes(activeSection)
+  const {
+    data: equipments = [],
+    isLoading: isEquipmentsLoading,
+    error: equipmentsError,
+  } = useEquipmentsQuery({ enabled: equipmentsEnabled })
   const handleLogout = async () => {
     try {
       await logout({ tokenType, accessToken })
@@ -123,77 +110,6 @@ const DashBoard = () => {
       setIsUsersLoading(false)
     }
   }, [accessToken, tokenType, setIsUsersLoading, setUsersError, setUsers, canSeeUsers])
-
-  const loadCompanies = useCallback(async () => {
-    if (!accessToken) return
-    setIsCompaniesLoading(true)
-    setCompaniesError('')
-    try {
-      const data = await fetchCompanies({ tokenType, accessToken })
-      setCompanies(Array.isArray(data?.items) ? data.items : [])
-    } catch (err) {
-      setCompaniesError(err?.detail || 'No se pudieron cargar las empresas.')
-    } finally {
-      setIsCompaniesLoading(false)
-    }
-  }, [accessToken, tokenType])
-
-  const loadBlocks = useCallback(async () => {
-    if (!accessToken) return
-    setIsBlocksLoading(true)
-    setBlocksError('')
-    try {
-      const data = await fetchCompanyBlocks({ tokenType, accessToken })
-      setBlocks(Array.isArray(data?.items) ? data.items : [])
-    } catch (err) {
-      setBlocksError(err?.detail || 'No se pudieron cargar los bloques.')
-    } finally {
-      setIsBlocksLoading(false)
-    }
-  }, [accessToken, tokenType])
-
-  const loadTerminals = useCallback(async () => {
-    if (!accessToken) return
-    setIsTerminalsLoading(true)
-    setTerminalsError('')
-    try {
-      const data = await fetchCompanyTerminals({ tokenType, accessToken })
-      setTerminals(Array.isArray(data?.items) ? data.items : [])
-    } catch (err) {
-      setTerminalsError(err?.detail || 'No se pudieron cargar los terminales.')
-    } finally {
-      setIsTerminalsLoading(false)
-    }
-  }, [accessToken, tokenType])
-
-  const loadEquipmentTypes = useCallback(async () => {
-    if (!accessToken) return
-    setIsEquipmentTypesLoading(true)
-    setEquipmentTypesError('')
-    try {
-      const data = await fetchEquipmentTypes({ tokenType, accessToken })
-      setEquipmentTypes(Array.isArray(data?.items) ? data.items : [])
-    } catch (err) {
-      setEquipmentTypesError(err?.detail || 'No se pudieron cargar los tipos de equipo.')
-    } finally {
-      setIsEquipmentTypesLoading(false)
-    }
-  }, [accessToken, tokenType])
-
-  const loadEquipments = useCallback(async () => {
-    if (!accessToken) return
-    setIsEquipmentsLoading(true)
-    setEquipmentsError('')
-    try {
-      const data = await fetchEquipments({ tokenType, accessToken })
-      setEquipments(Array.isArray(data?.items) ? data.items : [])
-    } catch (err) {
-      setEquipmentsError(err?.detail || 'No se pudieron cargar los equipos.')
-    } finally {
-      setIsEquipmentsLoading(false)
-    }
-  }, [accessToken, tokenType])
-
   useEffect(() => {
     if (!accessToken) return
     loadCurrentUser()
@@ -231,7 +147,7 @@ const DashBoard = () => {
         if (canSeeUsers) {
           loadUsers()
         }
-        loadEquipments()
+
         break
       case 'users':
         if (canSeeUsers) {
@@ -239,53 +155,26 @@ const DashBoard = () => {
         }
         break
       case 'terminals':
-        loadCompanies()
-        loadBlocks()
-        loadTerminals()
         break
       case 'equipment-types':
-        loadEquipmentTypes()
         break
       case 'equipment':
-        loadEquipmentTypes()
-        loadCompanies()
-        loadTerminals()
-        loadEquipments()
         break
       case 'samples':
-        loadTerminals()
-        loadEquipments()
         break
       case 'external-analyses':
-        loadTerminals()
-        loadCompanies()
         break
-      case 'prueba':
-        loadCompanies()
-        loadBlocks()
-        loadTerminals()
+      case 'companies':
         break
       case 'profile':
       default:
         break
     }
-  }, [
-    accessToken,
-    activeSection,
-    loadUsers,
-    loadCompanies,
-    loadBlocks,
-    loadTerminals,
-    loadEquipmentTypes,
-    loadEquipments,
-  ])
+  }, [accessToken, activeSection, loadUsers])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    window.localStorage.setItem(
-      'users.filters.status',
-      JSON.stringify(statusFilter)
-    )
+    window.localStorage.setItem('users.filters.status', JSON.stringify(statusFilter))
   }, [statusFilter])
 
   const renderContent = () => {
@@ -308,8 +197,6 @@ const DashBoard = () => {
               currentUser={currentUser}
               currentUserError={currentUserError}
               formatUserType={formatUserType}
-              tokenType={tokenType}
-              accessToken={accessToken}
               onProfileUpdated={loadCurrentUser}
             />
           )
@@ -320,8 +207,6 @@ const DashBoard = () => {
             usersError={usersError}
             isUsersLoading={isUsersLoading}
             formatUserType={formatUserType}
-            tokenType={tokenType}
-            accessToken={accessToken}
             onUserCreated={loadUsers}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
@@ -335,35 +220,17 @@ const DashBoard = () => {
             isTerminalsLoading={isTerminalsLoading}
             companies={companies}
             blocks={blocks}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onTerminalChanged={loadTerminals}
           />
         )
       case 'equipment-types':
-        return (
-          <EquipmentTypesTable
-            equipmentTypes={equipmentTypes}
-            equipmentTypesError={equipmentTypesError}
-            isEquipmentTypesLoading={isEquipmentTypesLoading}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onEquipmentTypeChanged={loadEquipmentTypes}
-          />
-        )
+        return <EquipmentTypesTable currentUser={currentUser} />
       case 'equipment':
         return (
           <EquipmentsTable
-            equipments={equipments}
-            equipmentsError={equipmentsError}
-            isEquipmentsLoading={isEquipmentsLoading}
             equipmentTypes={equipmentTypes}
             companies={companies}
             terminals={terminals}
             currentUser={currentUser}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onEquipmentChanged={loadEquipments}
           />
         )
       case 'reports':
@@ -377,13 +244,7 @@ const DashBoard = () => {
         )
       case 'samples':
         return (
-          <SamplesTable
-            terminals={terminals}
-            equipments={equipments}
-            currentUser={currentUser}
-            tokenType={tokenType}
-            accessToken={accessToken}
-          />
+          <SamplesTable terminals={terminals} equipments={equipments} currentUser={currentUser} />
         )
       case 'external-analyses':
         return (
@@ -391,29 +252,10 @@ const DashBoard = () => {
             terminals={terminals}
             companies={companies}
             currentUser={currentUser}
-            tokenType={tokenType}
-            accessToken={accessToken}
           />
         )
-      case 'prueba':
-        return (
-          <PruebaPage
-            companies={companies}
-            companiesError={companiesError}
-            isCompaniesLoading={isCompaniesLoading}
-            blocks={blocks}
-            blocksError={blocksError}
-            isBlocksLoading={isBlocksLoading}
-            terminals={terminals}
-            terminalsError={terminalsError}
-            isTerminalsLoading={isTerminalsLoading}
-            tokenType={tokenType}
-            accessToken={accessToken}
-            onCompanyChanged={loadCompanies}
-            onBlockChanged={loadBlocks}
-            onTerminalChanged={loadTerminals}
-          />
-        )
+      case 'companies':
+        return <CompaniesSection companies={companies} />
       case 'profile':
       default:
         return (
@@ -421,8 +263,6 @@ const DashBoard = () => {
             currentUser={currentUser}
             currentUserError={currentUserError}
             formatUserType={formatUserType}
-            tokenType={tokenType}
-            accessToken={accessToken}
             onProfileUpdated={loadCurrentUser}
           />
         )
@@ -432,6 +272,7 @@ const DashBoard = () => {
   return (
     <DashboardLayout
       isCollapsed={isSidebarCollapsed}
+      onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
       sidebar={
         <Sidebar
           currentUser={currentUser}

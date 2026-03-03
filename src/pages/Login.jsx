@@ -74,7 +74,7 @@ const Login = () => {
             <span>Contrasena</span>
             <input
               type="password"
-              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+              placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"

@@ -39,8 +39,8 @@ const useAuthStore = create(
         refreshToken: state.refreshToken,
         currentUser: state.currentUser,
       }),
-    }
-  )
+    },
+  ),
 )
 
 export { useAuthStore }
